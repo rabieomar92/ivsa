@@ -1,0 +1,185 @@
+{
+  "schemaVersion": 3,
+  "profileKey": "bx2601a_wz01m",
+  "sensorType": "bx2601a_wz01m",
+  "modelName": "BX2601A-WZ01M",
+  "registerMapVersion": "BX2601A-WZ01M-v1.0-20240926",
+  "modbus": {
+    "mode": "rtu",
+    "baud": 9600,
+    "slaveId": 1,
+    "serialFormat": "8N1",
+    "addressConvention": "pdu_zero_based",
+    "defaultReadFunction": 3,
+    "maximumReadRegisters": 22
+  },
+  "measurements": {
+    "acceleration": {
+      "unit": "m/s^2",
+      "semantics": "sensor_reported_magnitude",
+      "x": {
+        "enabled": true,
+        "function": 3,
+        "address": 19,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 0.0980665,
+        "offset": 0.0
+      },
+      "y": {
+        "enabled": true,
+        "function": 3,
+        "address": 14,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 0.0980665,
+        "offset": 0.0
+      },
+      "z": {
+        "enabled": true,
+        "function": 3,
+        "address": 9,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 0.0980665,
+        "offset": 0.0
+      }
+    },
+    "velocity": {
+      "unit": "mm/s",
+      "semantics": "sensor_reported_unspecified",
+      "x": {
+        "enabled": true,
+        "function": 3,
+        "address": 1,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 0.1,
+        "offset": 0.0
+      },
+      "y": {
+        "enabled": true,
+        "function": 3,
+        "address": 2,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 0.1,
+        "offset": 0.0
+      },
+      "z": {
+        "enabled": true,
+        "function": 3,
+        "address": 3,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 0.1,
+        "offset": 0.0
+      }
+    },
+    "displacement": {
+      "unit": "um",
+      "semantics": "sensor_reported",
+      "x": {
+        "enabled": true,
+        "function": 3,
+        "address": 20,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 1.0,
+        "offset": 0.0
+      },
+      "y": {
+        "enabled": true,
+        "function": 3,
+        "address": 15,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 1.0,
+        "offset": 0.0
+      },
+      "z": {
+        "enabled": true,
+        "function": 3,
+        "address": 10,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 1.0,
+        "offset": 0.0
+      }
+    },
+    "frequency": {
+      "unit": "Hz",
+      "semantics": "sensor_reported",
+      "x": {
+        "enabled": true,
+        "function": 3,
+        "address": 21,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 1.0,
+        "offset": 0.0
+      },
+      "y": {
+        "enabled": true,
+        "function": 3,
+        "address": 16,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 1.0,
+        "offset": 0.0
+      },
+      "z": {
+        "enabled": true,
+        "function": 3,
+        "address": 11,
+        "registerCount": 1,
+        "dataType": "uint16",
+        "byteOrder": "AB",
+        "scale": 1.0,
+        "offset": 0.0
+      }
+    },
+    "temperature": {
+      "unit": "C",
+      "value": {
+        "enabled": true,
+        "function": 3,
+        "address": 0,
+        "registerCount": 1,
+        "dataType": "int16",
+        "byteOrder": "AB",
+        "scale": 0.1,
+        "offset": 0.0
+      }
+    }
+  },
+  "frequencyRangeHz": {
+    "minimum": 10.0,
+    "maximum": 5000.0
+  },
+  "acquisition": {
+    "minimumPollIntervalMs": 350
+  },
+  "vendorClock": {
+    "enabled": false,
+    "startRegister": 0,
+    "registerCount": 0
+  },
+  "bulkRead": {
+    "enabled": true,
+    "function": 3,
+    "startAddress": 0,
+    "registerCount": 22
+  }
+}

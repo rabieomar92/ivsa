@@ -1,0 +1,432 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vibscope.local/schemas/sensor-profile-v3.json",
+  "title": "VibScope Modbus Sensor Profile v3",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "profileKey",
+    "sensorType",
+    "modelName",
+    "registerMapVersion",
+    "modbus",
+    "measurements",
+    "frequencyRangeHz",
+    "acquisition",
+    "vendorClock",
+    "bulkRead"
+  ],
+  "properties": {
+    "schemaVersion": {"const": 3},
+    "profileKey": {"type": "string", "minLength": 1, "maxLength": 31},
+    "sensorType": {"type": "string", "minLength": 1, "maxLength": 47},
+    "modelName": {"type": "string", "minLength": 1, "maxLength": 63},
+    "registerMapVersion": {"type": "string", "minLength": 1, "maxLength": 31},
+    "modbus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mode",
+        "baud",
+        "slaveId",
+        "serialFormat",
+        "addressConvention",
+        "defaultReadFunction",
+        "maximumReadRegisters"
+      ],
+      "properties": {
+        "mode": {"const": "rtu"},
+        "baud": {"type": "integer", "minimum": 300, "maximum": 2000000},
+        "slaveId": {"type": "integer", "minimum": 1, "maximum": 247},
+        "serialFormat": {
+          "enum": ["8N1", "8N2", "8E1", "8E2", "8O1", "8O2"]
+        },
+        "addressConvention": {"const": "pdu_zero_based"},
+        "defaultReadFunction": {"enum": [3, 4]},
+        "maximumReadRegisters": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 125
+        }
+      }
+    },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "acceleration",
+        "velocity",
+        "displacement",
+        "frequency",
+        "temperature"
+      ],
+      "properties": {
+        "acceleration": {
+          "$ref": "#/$defs/accelerationVector"
+        },
+        "velocity": {
+          "$ref": "#/$defs/velocityVector"
+        },
+        "displacement": {
+          "allOf": [
+            {"$ref": "#/$defs/vector"},
+            {
+              "properties": {
+                "unit": {"const": "um"},
+                "semantics": {"const": "sensor_reported"}
+              },
+              "oneOf": [
+                {
+                  "properties": {
+                    "x": {"properties": {"enabled": {"const": true}}},
+                    "y": {"properties": {"enabled": {"const": true}}},
+                    "z": {"properties": {"enabled": {"const": true}}}
+                  }
+                },
+                {
+                  "properties": {
+                    "x": {"properties": {"enabled": {"const": false}}},
+                    "y": {"properties": {"enabled": {"const": false}}},
+                    "z": {"properties": {"enabled": {"const": false}}}
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "frequency": {
+          "allOf": [
+            {"$ref": "#/$defs/vector"},
+            {
+              "properties": {
+                "unit": {"const": "Hz"},
+                "semantics": {"const": "sensor_reported"}
+              },
+              "oneOf": [
+                {
+                  "properties": {
+                    "x": {"properties": {"enabled": {"const": true}}},
+                    "y": {"properties": {"enabled": {"const": true}}},
+                    "z": {"properties": {"enabled": {"const": true}}}
+                  }
+                },
+                {
+                  "properties": {
+                    "x": {"properties": {"enabled": {"const": false}}},
+                    "y": {"properties": {"enabled": {"const": false}}},
+                    "z": {"properties": {"enabled": {"const": false}}}
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "temperature": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["unit", "value"],
+          "properties": {
+            "unit": {"const": "C"},
+            "value": {"$ref": "#/$defs/requiredField"}
+          }
+        }
+      }
+    },
+    "frequencyRangeHz": {"$ref": "#/$defs/range"},
+    "acquisition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimumPollIntervalMs"],
+      "properties": {
+        "minimumPollIntervalMs": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 60000
+        }
+      }
+    },
+    "vendorClock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "startRegister", "registerCount"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "startRegister": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "registerCount": {"type": "integer", "minimum": 0, "maximum": 4}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"enabled": {"const": true}}},
+          "then": {"properties": {"registerCount": {"const": 4}}},
+          "else": {"properties": {"registerCount": {"const": 0}}}
+        }
+      ]
+    },
+    "bulkRead": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "function", "startAddress", "registerCount"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "function": {"enum": [3, 4]},
+        "startAddress": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "registerCount": {"type": "integer", "minimum": 0, "maximum": 125}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"enabled": {"const": false}}},
+          "then": {"properties": {"registerCount": {"const": 0}}},
+          "else": {"properties": {"registerCount": {"minimum": 1}}}
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "measurements": {
+            "properties": {
+              "frequency": {
+                "properties": {
+                  "x": {"properties": {"enabled": {"const": false}}}
+                }
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "frequencyRangeHz": {
+            "properties": {
+              "minimum": {"const": 0},
+              "maximum": {"const": 0}
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "range": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["minimum", "maximum"],
+      "properties": {
+        "minimum": {"type": "number"},
+        "maximum": {"type": "number"}
+      }
+    },
+    "field": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled"],
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "function": {"enum": [3, 4]},
+        "address": {"type": "integer", "minimum": 0, "maximum": 65535},
+        "registerCount": {"type": "integer", "minimum": 1, "maximum": 4},
+        "dataType": {
+          "enum": [
+            "uint16",
+            "int16",
+            "uint32",
+            "int32",
+            "uint64",
+            "int64",
+            "float32",
+            "float64",
+            "bcd16",
+            "bcd32",
+            "uint32_mod10000",
+            "int32_mod10000",
+            "boolean"
+          ]
+        },
+        "byteOrder": {
+          "type": "string",
+          "pattern": "^[A-H]{2,8}$"
+        },
+        "scale": {
+          "type": "number",
+          "minimum": -1000000000000,
+          "maximum": 1000000000000,
+          "not": {"const": 0}
+        },
+        "offset": {
+          "type": "number",
+          "minimum": -1000000000000000,
+          "maximum": 1000000000000000
+        },
+        "bitField": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mask", "shift", "signed"],
+          "properties": {
+            "mask": {
+              "oneOf": [
+                {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 4294967295
+                },
+                {"type": "string", "pattern": "^(0[xX][0-9A-Fa-f]+|[0-9]+)$"}
+              ]
+            },
+            "shift": {"type": "integer", "minimum": 0, "maximum": 63},
+            "signed": {"type": "boolean"}
+          }
+        },
+        "invalidRaw": {
+          "oneOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            {"type": "string", "pattern": "^(0[xX][0-9A-Fa-f]+|[0-9]+)$"}
+          ]
+        },
+        "validRange": {"$ref": "#/$defs/range"}
+      },
+      "allOf": [
+        {
+          "if": {
+            "required": ["enabled"],
+            "properties": {"enabled": {"const": true}}
+          },
+          "then": {
+            "required": [
+              "function",
+              "address",
+              "registerCount",
+              "dataType",
+              "byteOrder",
+              "scale",
+              "offset"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": ["dataType"],
+            "properties": {
+              "dataType": {
+                "enum": ["uint16", "int16", "bcd16", "boolean"]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "registerCount": {"const": 1},
+              "byteOrder": {"enum": ["AB", "BA"]}
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["dataType"],
+            "properties": {
+              "dataType": {
+                "enum": [
+                  "uint32",
+                  "int32",
+                  "float32",
+                  "bcd32",
+                  "uint32_mod10000",
+                  "int32_mod10000"
+                ]
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "registerCount": {"const": 2},
+              "byteOrder": {
+                "type": "string",
+                "minLength": 4,
+                "maxLength": 4
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "required": ["dataType"],
+            "properties": {
+              "dataType": {"enum": ["uint64", "int64", "float64"]}
+            }
+          },
+          "then": {
+            "properties": {
+              "registerCount": {"const": 4},
+              "byteOrder": {
+                "type": "string",
+                "minLength": 8,
+                "maxLength": 8
+              }
+            }
+          }
+        }
+      ]
+    },
+    "vector": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit", "semantics", "x", "y", "z"],
+      "properties": {
+        "unit": {"type": "string"},
+        "semantics": {"type": "string"},
+        "x": {"$ref": "#/$defs/field"},
+        "y": {"$ref": "#/$defs/field"},
+        "z": {"$ref": "#/$defs/field"}
+      }
+    },
+    "requiredField": {
+      "allOf": [
+        {"$ref": "#/$defs/field"},
+        {"properties": {"enabled": {"const": true}}}
+      ]
+    },
+    "accelerationVector": {
+      "allOf": [
+        {"$ref": "#/$defs/vector"},
+        {
+          "properties": {
+            "unit": {"const": "m/s^2"},
+            "semantics": {
+              "enum": [
+                "instantaneous_waveform",
+                "sensor_reported_magnitude"
+              ]
+            },
+            "x": {"$ref": "#/$defs/requiredField"},
+            "y": {"$ref": "#/$defs/requiredField"},
+            "z": {"$ref": "#/$defs/requiredField"}
+          }
+        }
+      ]
+    },
+    "velocityVector": {
+      "allOf": [
+        {"$ref": "#/$defs/vector"},
+        {
+          "properties": {
+            "unit": {"const": "mm/s"},
+            "semantics": {
+              "enum": [
+                "sensor_reported_rms",
+                "sensor_reported_unspecified"
+              ]
+            },
+            "x": {"$ref": "#/$defs/requiredField"},
+            "y": {"$ref": "#/$defs/requiredField"},
+            "z": {"$ref": "#/$defs/requiredField"}
+          }
+        }
+      ]
+    }
+  }
+}
