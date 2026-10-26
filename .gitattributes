@@ -1,0 +1,2 @@
+# Preserve exact snapshot bytes: the archived base and release manifests use SHA-256.
+* -text

@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 3,
+  "profileKey": "witmotion_wtvb01",
+  "sensorType": "witmotion_wtvb01",
+  "modelName": "WitMotion WTVB01-485",
+  "registerMapVersion": "WTVB01-485-v26-05-08",
+  "modbus": {
+    "mode": "rtu",
+    "baud": 9600,
+    "slaveId": 80,
+    "serialFormat": "8N1",
+    "addressConvention": "pdu_zero_based",
+    "defaultReadFunction": 3,
+    "maximumReadRegisters": 19
+  },
+  "measurements": {
+    "acceleration": {
+      "unit": "m/s^2",
+      "semantics": "instantaneous_waveform",
+      "x": {"enabled": true, "function": 3, "address": 52, "registerCount": 1, "dataType": "int16", "byteOrder": "AB", "scale": 0.00478840332, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 53, "registerCount": 1, "dataType": "int16", "byteOrder": "AB", "scale": 0.00478840332, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 54, "registerCount": 1, "dataType": "int16", "byteOrder": "AB", "scale": 0.00478840332, "offset": 0.0}
+    },
+    "velocity": {
+      "unit": "mm/s",
+      "semantics": "sensor_reported_rms",
+      "x": {"enabled": true, "function": 3, "address": 58, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 59, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 60, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0}
+    },
+    "displacement": {
+      "unit": "um",
+      "semantics": "sensor_reported",
+      "x": {"enabled": true, "function": 3, "address": 65, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 1.0, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 66, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 1.0, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 67, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 1.0, "offset": 0.0}
+    },
+    "frequency": {
+      "unit": "Hz",
+      "semantics": "sensor_reported",
+      "x": {"enabled": true, "function": 3, "address": 68, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.1, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 69, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.1, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 70, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.1, "offset": 0.0}
+    },
+    "temperature": {
+      "unit": "C",
+      "value": {"enabled": true, "function": 3, "address": 64, "registerCount": 1, "dataType": "int16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0}
+    }
+  },
+  "frequencyRangeHz": {
+    "minimum": 0.1,
+    "maximum": 6553.5
+  },
+  "acquisition": {
+    "minimumPollIntervalMs": 100
+  },
+  "vendorClock": {
+    "enabled": true,
+    "startRegister": 48,
+    "registerCount": 4
+  },
+  "bulkRead": {
+    "enabled": true,
+    "function": 3,
+    "startAddress": 52,
+    "registerCount": 19
+  }
+}

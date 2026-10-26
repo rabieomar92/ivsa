@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 3,
+  "profileKey": "bydr3016zw",
+  "sensorType": "bydr3016zw",
+  "modelName": "BYDR3016ZW",
+  "registerMapVersion": "BYDR3016ZW-v1.9-20230704",
+  "modbus": {
+    "mode": "rtu",
+    "baud": 9600,
+    "slaveId": 1,
+    "serialFormat": "8N1",
+    "addressConvention": "pdu_zero_based",
+    "defaultReadFunction": 3,
+    "maximumReadRegisters": 16
+  },
+  "measurements": {
+    "acceleration": {
+      "unit": "m/s^2",
+      "semantics": "sensor_reported_magnitude",
+      "x": {"enabled": true, "function": 3, "address": 4, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 5, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 6, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0}
+    },
+    "velocity": {
+      "unit": "mm/s",
+      "semantics": "sensor_reported_rms",
+      "x": {"enabled": true, "function": 3, "address": 0, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 1, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 2, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0}
+    },
+    "displacement": {
+      "unit": "um",
+      "semantics": "sensor_reported",
+      "x": {"enabled": true, "function": 3, "address": 19, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 1.0, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 20, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 1.0, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 21, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 1.0, "offset": 0.0}
+    },
+    "frequency": {
+      "unit": "Hz",
+      "semantics": "sensor_reported",
+      "x": {"enabled": false},
+      "y": {"enabled": false},
+      "z": {"enabled": false}
+    },
+    "temperature": {
+      "unit": "C",
+      "value": {"enabled": true, "function": 3, "address": 3, "registerCount": 1, "dataType": "int16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0}
+    }
+  },
+  "frequencyRangeHz": {
+    "minimum": 0.0,
+    "maximum": 0.0
+  },
+  "acquisition": {
+    "minimumPollIntervalMs": 960
+  },
+  "vendorClock": {
+    "enabled": false,
+    "startRegister": 0,
+    "registerCount": 0
+  },
+  "bulkRead": {
+    "enabled": false,
+    "function": 3,
+    "startAddress": 0,
+    "registerCount": 0
+  }
+}

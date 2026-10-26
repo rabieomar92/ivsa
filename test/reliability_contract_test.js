@@ -60,7 +60,7 @@ for (let i = 0; i < 20; i++) {
 }
 assert.equal(simulatedWifiRetry, wifiRetryMaximum);
 
-assert.match(source, /FIRMWARE_VERSION\s*=\s*"1\.8\.6-server-recovery5"/);
+assert.match(source, /FIRMWARE_VERSION\s*=\s*"Athena"/);
 assert.match(source, /millis\(\) - modbusRecoveryStartedMs/);
 assert.doesNotMatch(source, /return\s+millis\(\)\s*<\s*modbusRecovery/);
 assert.doesNotMatch(source, /eng\.freqX\s*=\s*eng\.freqY\s*=\s*eng\.freqZ\s*=\s*0/);
@@ -78,7 +78,7 @@ assert.match(
 );
 assert.doesNotMatch(source, /requestAuthentication|SETUP_AP_WINDOW_MS/);
 assert.match(source, /IPAddress\s+setupApIp\(192,\s*168,\s*4,\s*1\)/);
-assert.match(source, /const char \*SETUP_PIN\s*=\s*VIBSCOPE_BUILD_SUFFIX/);
+assert.match(source, /const char \*SETUP_PIN\s*=\s*IVSS_BUILD_SUFFIX/);
 assert.match(source, /ACTIVE_SENSOR_PROFILE\.frequencyFields/);
 assert.match(source, /StaticJsonDocument<12288>\s+profileJsonDocument/);
 assert.match(source, /deserializeJson\(profileJsonDocument,\s*json,\s*DeserializationOption::NestingLimit\(12\)\)/);
@@ -121,7 +121,7 @@ assert.match(source, /server\.send_P\(200,\s*PSTR\("font\/woff2"\)/);
 assert.match(source, /\.btn\{[^}]*font-family:'JetBrains Mono',monospace/);
 assert.match(source, /body\{[^}]*font-family:'JetBrains Mono','Cascadia Mono','SFMono-Regular',Consolas,monospace/);
 assert.match(source, /\.brand-word\{font-family:'JetBrains Mono',monospace;font-weight:700\}/);
-assert.match(source, /<h1><span class='brand-word'>VibScope<\/span> Setup<\/h1>/);
+assert.match(source, /<h1><span class='brand-word'>IVSS<\/span> Setup<\/h1>/);
 assert.match(source, /profileStorageHealthy/);
 assert.match(source, /sensorProfileLoadedFromStorage/);
 assert.match(source, /const char \*mirrorKey/);
@@ -235,7 +235,9 @@ assert.match(source, /WiFi\.setHostname\(networkHostname\.c_str\(\)\)/);
 assert.match(source, /WiFi\.softAPsetHostname\(networkHostname\.c_str\(\)\)/);
 assert.doesNotMatch(source, /\\"board\\":/);
 assert.doesNotMatch(source, /macAddress/);
-const customerVisibleLiterals = source.match(/"(?:\\.|[^"\\])*"/g) || [];
+// Header names are build inputs, not customer-visible string literals.
+const customerVisibleSource = source.replace(/^\s*#\s*include[^\r\n]*/gm, "");
+const customerVisibleLiterals = customerVisibleSource.match(/"(?:\\.|[^"\\])*"/g) || [];
 assert.deepEqual(
   customerVisibleLiterals.filter((literal) => /esp32/i.test(literal)),
   [],
@@ -253,14 +255,15 @@ assert.match(apTestSource, /delay\(10\);\s*\}/);
 assert.match(ini, /PubSubClient\s*@\s*2\.8\.0/);
 assert.match(ini, /ArduinoJson\s*@\s*6\.21\.5/);
 assert.match(ini, /pre:scripts\/generate_serial\.py/);
-assert.match(ini, /\[env:esp32dev-custom-profile\]/);
-assert.match(identity, /VIBSCOPE_BUILD_SERIAL "VS-2607-12-\d{12}"/);
+assert.match(ini, /default_envs\s*=\s*athena/);
+assert.match(ini, /\[env:athena\]\s*extends\s*=\s*env:achilles/);
+assert.match(identity, /IVSS_BUILD_SERIAL "TR-2607-12-\d{12}"/);
 assert.match(serialGenerator, /secrets\.randbelow\(1_000_000_000_000\):012d/);
 assert.match(source, /String\s+newIdentificationName\s*=\s*server\.arg\("identification_name"\)/);
 assert.match(source, /payload \+= "\\"identificationName\\":\\""/);
 assert.match(serialGenerator, /upload_requested = "upload" in COMMAND_LINE_TARGETS/);
 assert.match(serialGenerator, /if upload_requested or not header_path\.exists\(\):\s*allocate_serial\(\)/);
-assert.match(serialGenerator, /VS-2607-12-\{suffix\}/);
+assert.match(serialGenerator, /TR-2607-12-\{suffix\}/);
 assert.match(profile, /struct ModbusSensorProfile/);
 assert.match(profile, /struct ModbusFieldProfile/);
 assert.match(profile, /enum class ModbusProfileDataType/);

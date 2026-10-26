@@ -1,5 +1,5 @@
 // =============================================================================
-// VibScope ESP32 Firmware
+// IVSS ESP32 Firmware
 //
 // Owner:           Akiharu Scientific and Engineering
 // Copyright:       (c) 2026 Akiharu Scientific and Engineering. All rights reserved.
@@ -24,7 +24,7 @@
 //   5. Publish telemetry over STA/MQTT whenever those links are available.
 //
 // Setup AP:
-//   - SSID:     VS-2607-12-############ by default; user-editable.
+//   - SSID:     TR-2607-12-############ by default; user-editable.
 //   - Password: the 12-digit suffix by default; user-editable.
 //   - URL:      http://192.168.4.1  or  http://sensor.local
 //   - The setup network runs its own captive-portal DNS (all names resolve to
@@ -49,9 +49,26 @@
 #include "esp_task_wdt.h"
 #include "esp_system.h"
 #include "esp_heap_caps.h"
+#include "esp_log.h"
+#include "esp32-hal-uart.h"
+#include "driver/uart.h"
 #include "nvs.h"
 #include "build_identity.h"
 #include "sensor_profile.h"
+#include "sensor_rx_trace.h"
+
+// GPIO1/GPIO3 builds reserve the UART wires for Modbus. Compile console calls
+// out entirely, including their formatting and argument evaluation. sizeof()
+// keeps argument/format checks without evaluating or calling the console.
+#if defined(SENSOR_ON_PROGRAM_UART_PINS)
+#define CONTROLLER_LOG_PRINT(...) ((void)sizeof(Serial.print(__VA_ARGS__)))
+#define CONTROLLER_LOG_PRINTLN(...) ((void)sizeof(Serial.println(__VA_ARGS__)))
+#define CONTROLLER_LOG_PRINTF(...) ((void)sizeof(Serial.printf(__VA_ARGS__)))
+#else
+#define CONTROLLER_LOG_PRINT(...) Serial.print(__VA_ARGS__)
+#define CONTROLLER_LOG_PRINTLN(...) Serial.println(__VA_ARGS__)
+#define CONTROLLER_LOG_PRINTF(...) Serial.printf(__VA_ARGS__)
+#endif
 
 extern const uint8_t jetbrainsMonoRegularStart[]
   asm("_binary_assets_jetbrains_mono_regular_woff2_start");
@@ -68,27 +85,39 @@ ModbusSensorProfile ACTIVE_SENSOR_PROFILE = DEFAULT_SENSOR_PROFILE;
 // ---------------------------------------------------------------------------
 // GPIO and UART assignments are board- and wiring-dependent. Changing these
 // can prevent boot, interfere with GPIO0 strapping, or disconnect the RS485 bus.
-#define LED_PIN 2   // Active-LOW on most ESP32-WROOM dev boards
+#include "status_led.h"
+#include "live_status_page.h"
 #ifndef SENSOR_UART_TX_PIN
 #define SENSOR_UART_TX_PIN 17
 #endif
 #ifndef SENSOR_UART_RX_PIN
 #define SENSOR_UART_RX_PIN 16
 #endif
-// This isolated converter labels its MCU-side UART pins by the MCU signal:
-// ESP32 TX connects to module TXD (internally the RS485 driver's DI), and
-// ESP32 RX connects to module RXD (internally the RS485 receiver's RO).
-const int UART2_TX_PIN = SENSOR_UART_TX_PIN;  // ESP32-U TX header / GPIO1 -> module TXD
-const int UART2_RX_PIN = SENSOR_UART_RX_PIN;  // ESP32-U RX header / GPIO3 <- module RXD
+// GPIO17 -> Waveshare RXD; GPIO16 <- Waveshare TXD in the default build.
+// The legacy achilles_invert environment retains its GPIO3/GPIO1 UART routing.
+const int UART2_TX_PIN = SENSOR_UART_TX_PIN;
+const int UART2_RX_PIN = SENSOR_UART_RX_PIN;
 static_assert(SENSOR_UART_TX_PIN != SENSOR_UART_RX_PIN, "Sensor UART TX and RX must use different GPIOs");
 #if defined(SENSOR_ON_PROGRAM_UART_PINS)
+#if defined(ACHILLES_INVERT)
+static_assert(SENSOR_UART_TX_PIN == 3 && SENSOR_UART_RX_PIN == 1,
+              "achilles_invert must map TX=GPIO3 and RX=GPIO1");
+#else
 static_assert(SENSOR_UART_TX_PIN == 1 && SENSOR_UART_RX_PIN == 3,
               "Controller TX/RX build must map TX=GPIO1 and RX=GPIO3");
+#endif
 #endif
 #ifndef SENSOR_POWER_ENABLE_PIN
 #define SENSOR_POWER_ENABLE_PIN -1
 #endif
 const int SENSOR_POWER_PIN       = SENSOR_POWER_ENABLE_PIN;
+static_assert(SENSOR_POWER_ENABLE_PIN < 0 ||
+              (SENSOR_POWER_ENABLE_PIN != SENSOR_UART_TX_PIN &&
+               SENSOR_POWER_ENABLE_PIN != SENSOR_UART_RX_PIN),
+              "Sensor power control must not use either Modbus UART pin");
+#if defined(SENSOR_ON_PROGRAM_UART_PINS)
+bool programmingUartReleased = false;
+#endif
 int       RS485_DE_RE_PIN        = -1;    // -1 means converter with auto-direction (no DE/RE control)
 bool      RS485_DIR_ACTIVE_HIGH  = true;  // true: HIGH=TX, false: LOW=TX
 const int SETUP_BUTTON_PIN       = 0;     // BOOT button (GPIO0): hold to enter WiFi setup
@@ -138,9 +167,20 @@ const float         VELOCITY_CRITICAL_MM_S = 7.1f;
 // valid engineering range and the firmware passes through the full report.
 #define SENSOR_FREQUENCY_MIN_HZ (ACTIVE_SENSOR_PROFILE.frequencyMinimum)
 #define SENSOR_FREQUENCY_MAX_HZ (ACTIVE_SENSOR_PROFILE.frequencyMaximum)
-const char         *FIRMWARE_NAME              = "VIBSCOPE Control Panel";
-const char         *FIRMWARE_VERSION           = "1.8.7-release";
-const char         *BUILD_SERIAL_NUMBER        = VIBSCOPE_BUILD_SERIAL;
+const char         *FIRMWARE_NAME              = "IVSS Controller";
+#if defined(ACHILLES_AP_ONLY_DIAGNOSTIC) && !defined(ACHILLES_INVERT_DIAGNOSTIC)
+#error "AP-only power diagnostic requires the UART-paused diagnostic"
+#endif
+#if defined(ACHILLES_AP_ONLY_DIAGNOSTIC)
+const char         *FIRMWARE_VERSION           = "achilles_invert_ap_diag";
+#elif defined(ACHILLES_INVERT_DIAGNOSTIC)
+const char         *FIRMWARE_VERSION           = "achilles_invert_diag";
+#elif defined(ACHILLES_INVERT)
+const char         *FIRMWARE_VERSION           = "achilles_invert";
+#else
+const char         *FIRMWARE_VERSION           = "Athena";
+#endif
+const char         *BUILD_SERIAL_NUMBER        = IVSS_BUILD_SERIAL;
 const char         *SENSOR_MODEL_NAME          = ACTIVE_SENSOR_PROFILE.modelName;
 const char         *DEVICE_PROTOCOL_NAME       = "RS485-Modbus";
 const char         *SENSOR_REGISTER_MAP_VERSION = ACTIVE_SENSOR_PROFILE.registerMapVersion;
@@ -191,12 +231,7 @@ const unsigned long NODE_SERVER_HEARTBEAT_TIMEOUT_MS = 45000;
 const unsigned long NODE_SERVER_HEARTBEAT_RESUBSCRIBE_MS = 60000;
 const unsigned long RECOVERY_AP_RETRY_INTERVAL_MS    = 60000;
 const unsigned long MQTT_OUTAGE_AP_TRIGGER_MS        = 15000;
-const char         *NODE_SERVER_HEARTBEAT_TOPIC      = "vibscope/server/heartbeat";
-const unsigned long LED_SLOW_BLINK_MS           = 1000;  // AP active + STA disconnected
-const unsigned long LED_MQTT_BLINK_MS           = 90;    // MQTT connecting: faster blink
-const unsigned long LED_DOUBLE_BLINK_PERIOD_MS  = 1200;
-const unsigned long LED_CONNECTED_INTERVAL_MS   = 10000; // pulse every 10 s
-const unsigned long LED_CONNECTED_PULSE_MS      = 120;   // pulse width
+const char         *NODE_SERVER_HEARTBEAT_TOPIC      = "ivss/server/heartbeat";
 const unsigned long SENSOR_LOG_INTERVAL_MS      = 1000;  // avoid Serial blocking the MQTT/sensor loop
 const unsigned long FAST_FRAME_RETRY_INTERVAL_MS = 30000; // retry optimized bulk read after split-read fallback
 const uint8_t       FAST_FRAME_FAILURES_BEFORE_FALLBACK = 3;
@@ -230,7 +265,7 @@ const uint32_t      RUNTIME_CPU_FREQUENCY_MHZ    = 80;    // lower CPU power; AP
 // ---------------------------------------------------------------------------
 // The 12-digit serial suffix is the factory WPA2 setup credential.
 // Changing this affects field access to every provisioned controller.
-const char *SETUP_PIN    = VIBSCOPE_BUILD_SUFFIX;
+const char *SETUP_PIN    = IVSS_BUILD_SUFFIX;
 
 // ---------------------------------------------------------------------------
 // [MQTT] Packet and raw-window constants [HIGH RISK]
@@ -366,10 +401,6 @@ unsigned long lastNodeServerHeartbeatMs = 0;
 unsigned long lastNodeHeartbeatSubscribeAttemptMs = 0;
 bool          nodeServerHeartbeatSeen = false;
 bool          nodeServerHeartbeatTimedOut = false;
-unsigned long lastLedToggleMs     = 0;
-unsigned long ledPulseEndMs       = 0;
-unsigned long nextConnectedPulse  = 0;
-bool          ledState            = false;
 uint8_t       sensorReadFailCount = 0;
 uint8_t       consecutiveFastFrameFailures = 0;
 bool          useSplitModbusReads = !ACTIVE_SENSOR_PROFILE.supportsContiguousFastFrame;
@@ -423,6 +454,8 @@ uint32_t      publishSuccessCount  = 0;
 uint32_t      publishFailCount      = 0;
 unsigned long lastHeartbeatMs       = 0;
 unsigned long lastSensorReadOkMs    = 0;
+// Latest completed acquisition, including failures; cached data is not success.
+bool lastSensorAcquisitionOk = false;
 unsigned long lastPublishOkMs       = 0;
 unsigned long lastTelemetryAttemptMs = 0;
 // Tracks the end-to-end consumer path, not merely WiFi/MQTT transport. Its
@@ -817,7 +850,7 @@ bool validateSensorProfile(const ModbusSensorProfile &profile, String &error) {
     if (!profile.accelerationFields[axis].enabled ||
         !profile.velocityFields[axis].enabled) {
       error =
-        "VibScope schema 3 requires X/Y/Z fields for acceleration and velocity.";
+        "IVSS schema 3 requires X/Y/Z fields for acceleration and velocity.";
       return false;
     }
   }
@@ -845,7 +878,7 @@ bool validateSensorProfile(const ModbusSensorProfile &profile, String &error) {
     return false;
   }
   if (!profile.temperatureField.enabled) {
-    error = "VibScope schema 3 currently requires a temperature field.";
+    error = "IVSS schema 3 currently requires a temperature field.";
     return false;
   }
   if (profile.supportsVendorClock &&
@@ -943,7 +976,7 @@ bool persistSensorProfile(const ModbusSensorProfile &profile) {
         ", free=" + String(stats.free_entries) +
         ", total=" + String(stats.total_entries) + ")";
     }
-    Serial.println("[Profile] " + lastProfileStorageError);
+    CONTROLLER_LOG_PRINTLN("[Profile] " + lastProfileStorageError);
     return false;
   }
   StoredSensorProfile &slotA = profilePersistenceWorkspace.slotA;
@@ -1028,12 +1061,12 @@ bool persistSensorProfile(const ModbusSensorProfile &profile) {
     } else {
       lastProfileStorageError = "NVS read-back CRC/profile verification failed";
     }
-    Serial.println("[Profile] Save verification failed: " +
+    CONTROLLER_LOG_PRINTLN("[Profile] Save verification failed: " +
                    lastProfileStorageError);
   } else if (!redundancyVerified) {
     lastProfileStorageError =
       "Primary profile saved; redundant mirror verification failed";
-    Serial.println("[Profile] " + lastProfileStorageError);
+    CONTROLLER_LOG_PRINTLN("[Profile] " + lastProfileStorageError);
   } else {
     lastProfileStorageError = "none";
   }
@@ -1074,11 +1107,11 @@ void loadSensorProfile() {
     useSplitModbusReads = !ACTIVE_SENSOR_PROFILE.supportsContiguousFastFrame;
     profileStorageHealthy = validA && validB &&
       memcmp(&slotA.profile, &slotB.profile, sizeof(slotA.profile)) == 0;
-    Serial.printf("[Profile] Loaded '%s' generation %lu.\n",
+    CONTROLLER_LOG_PRINTF("[Profile] Loaded '%s' generation %lu.\n",
                   ACTIVE_SENSOR_PROFILE.profileKey,
                   (unsigned long)selected.generation);
     if (!profileStorageHealthy) {
-      Serial.println(
+      CONTROLLER_LOG_PRINTLN(
         "[Profile] Profile storage is degraded; repairing redundancy.");
       persistSensorProfile(ACTIVE_SENSOR_PROFILE);
     }
@@ -1086,7 +1119,7 @@ void loadSensorProfile() {
     // Empty or corrupted profile storage never prevents operation: the
     // firmware's audited profile remains active.
     profileStorageHealthy = !anyProfileRecordPresent;
-    Serial.printf("[Profile] No validated uploaded profile; using built-in '%s'.\n",
+    CONTROLLER_LOG_PRINTF("[Profile] No validated uploaded profile; using built-in '%s'.\n",
                   ACTIVE_SENSOR_PROFILE.profileKey);
   }
 }
@@ -1149,7 +1182,7 @@ bool persistCurrentConfig() {
   if (!configStorage.begin("vibescope", false)) {
     configStorageHealthy = false;
     lastConfigStorageError = "NVS namespace could not be opened";
-    Serial.println("[Config] NVS open failed.");
+    CONTROLLER_LOG_PRINTLN("[Config] NVS open failed.");
     return false;
   }
   const bool validA = readConfigSlot(configStorage, "cfg_a", slotA);
@@ -1240,7 +1273,7 @@ bool persistCurrentConfig() {
     lastConfigStorageError = "NVS read-back CRC verification failed";
   }
   if (!verified) {
-    Serial.println("[Config] Save verification failed: " +
+    CONTROLLER_LOG_PRINTLN("[Config] Save verification failed: " +
                    lastConfigStorageError);
   }
   return verified;
@@ -1262,7 +1295,7 @@ void loadPreferences() {
           ? (((int32_t)(slotA.generation - slotB.generation) > 0) ? slotA : slotB)
           : (validA ? slotA : slotB);
       applyPersistentConfig(selected);
-#if defined(SENSOR_ON_PROGRAM_UART_PINS)
+#if defined(SENSOR_ON_PROGRAM_UART_PINS) || defined(SENSOR_RS485_AUTO_DIRECTION)
       RS485_DE_RE_PIN = -1;
 #endif
       const unsigned long profilePollMinimum =
@@ -1290,9 +1323,9 @@ void loadPreferences() {
       sensorAccelRegBase = ACTIVE_SENSOR_PROFILE.acceleration.startRegister;
       sensorReadFunction = ACTIVE_SENSOR_PROFILE.readFunction;
       if (configChanged && !persistCurrentConfig()) {
-        Serial.println("[Config] ERROR: build identity/profile could not be persisted.");
+        CONTROLLER_LOG_PRINTLN("[Config] ERROR: build identity/profile could not be persisted.");
       }
-      Serial.printf("[Config] Loaded validated configuration generation %lu.\n",
+      CONTROLLER_LOG_PRINTF("[Config] Loaded validated configuration generation %lu.\n",
                     (unsigned long)selected.generation);
       return;
     }
@@ -1335,14 +1368,14 @@ void loadPreferences() {
   sensorAccelRegBase = ACTIVE_SENSOR_PROFILE.acceleration.startRegister;
   sensorReadFunction = ACTIVE_SENSOR_PROFILE.readFunction;
 
-#if defined(SENSOR_ON_PROGRAM_UART_PINS)
+#if defined(SENSOR_ON_PROGRAM_UART_PINS) || defined(SENSOR_RS485_AUTO_DIRECTION)
   // This build is explicitly for a two-wire-TTL auto-direction converter.
   // Ignore any stale manual DE/RE setting retained in NVS by older firmware.
   RS485_DE_RE_PIN = -1;
 #endif
 
   if (mqttPort < 1 || mqttPort > 65535) {
-    Serial.printf("[Config] Saved MQTT port %d is invalid. Falling back to 1883.\n", mqttPort);
+    CONTROLLER_LOG_PRINTF("[Config] Saved MQTT port %d is invalid. Falling back to 1883.\n", mqttPort);
     mqttPort = 1883;
   }
 
@@ -1351,19 +1384,19 @@ void loadPreferences() {
         (unsigned long)ACTIVE_SENSOR_PROFILE.minimumPollIntervalMs);
   if (sensorPollIntervalMs < profilePollMinimum ||
       sensorPollIntervalMs > SENSOR_READ_MAX_INTERVAL_MS) {
-    Serial.printf("[Sensor] Saved poll interval %lu ms is invalid for this profile. Falling back to %lu ms.\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] Saved poll interval %lu ms is invalid for this profile. Falling back to %lu ms.\n",
                   sensorPollIntervalMs, profilePollMinimum);
     sensorPollIntervalMs = profilePollMinimum;
   }
 
   if (!persistCurrentConfig()) {
-    Serial.println("[Config] ERROR: could not create a verified redundant configuration record.");
+    CONTROLLER_LOG_PRINTLN("[Config] ERROR: could not create a verified redundant configuration record.");
   }
-  Serial.println("[Config] Device ID: " + deviceId);
-  Serial.printf("[Sensor] Modbus id=0x%02X baud=%lu fcode=0x%02X accelReg=0x%04X rs485DirPin=%d dirHigh=%d\n",
+  CONTROLLER_LOG_PRINTLN("[Config] Device ID: " + deviceId);
+  CONTROLLER_LOG_PRINTF("[Sensor] Modbus id=0x%02X baud=%lu fcode=0x%02X accelReg=0x%04X rs485DirPin=%d dirHigh=%d\n",
                 sensorModbusId, (unsigned long)sensorBaud, sensorReadFunction,
                 sensorAccelRegBase, RS485_DE_RE_PIN, RS485_DIR_ACTIVE_HIGH ? 1 : 0);
-  Serial.printf("[Sensor] Preferred baud: %lu. Sensor must already be configured to this baud.\n",
+  CONTROLLER_LOG_PRINTF("[Sensor] Preferred baud: %lu. Sensor must already be configured to this baud.\n",
                 (unsigned long)ACTIVE_SENSOR_PROFILE.defaultBaud);
 }
 
@@ -1384,7 +1417,7 @@ void generateDeviceId() {
   deviceId = BUILD_SERIAL_NUMBER;
   if (ssidWasFactoryDefault) setupApSsid = deviceId;
   if (passWasFactoryDefault) setupApPass = SETUP_PIN;
-  Serial.println("[Identity] Firmware serial/device ID: " + deviceId);
+  CONTROLLER_LOG_PRINTLN("[Identity] Firmware serial/device ID: " + deviceId);
 }
 
 bool isKnownSensorBaud(uint32_t baud) {
@@ -2266,7 +2299,7 @@ bool requireSetupApRequest() {
     return true;
   }
   server.send(403, "text/plain; charset=UTF-8",
-              "This setup endpoint is available only through the VibScope access point.");
+              "This setup endpoint is available only through the IVSS access point.");
   return false;
 }
 
@@ -2314,7 +2347,7 @@ const char *staDisconnectReasonText(uint8_t reason) {
 void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
   switch (event) {
     case ARDUINO_EVENT_WIFI_STA_CONNECTED:
-      Serial.println("[WiFi] Associated with the AP; waiting for an IP address.");
+      CONTROLLER_LOG_PRINTLN("[WiFi] Associated with the AP; waiting for an IP address.");
       break;
     case ARDUINO_EVENT_WIFI_STA_GOT_IP:
       staEverGotIp = true;
@@ -2324,7 +2357,7 @@ void onWifiEvent(WiFiEvent_t event, WiFiEventInfo_t info) {
       const uint8_t reason = info.wifi_sta_disconnected.reason;
       lastStaDisconnectReason = reason;
       staDisconnectCount++;
-      Serial.printf("[WiFi] STA disconnect reason %u: %s\n",
+      CONTROLLER_LOG_PRINTF("[WiFi] STA disconnect reason %u: %s\n",
                     (unsigned)reason, staDisconnectReasonText(reason));
       break;
     }
@@ -2350,7 +2383,7 @@ void applyWifiPowerPolicy() {
     WiFi.setTxPower(WIFI_POWER_11dBm) ||
     WiFi.getTxPower() == WIFI_POWER_11dBm;
   if (!sleepConfigured || !txPowerSet) {
-    Serial.printf("[Power] WiFi policy incomplete: sleep=%d txPower=%d.\n",
+    CONTROLLER_LOG_PRINTF("[Power] WiFi policy incomplete: sleep=%d txPower=%d.\n",
                   sleepConfigured ? 1 : 0, txPowerSet ? 1 : 0);
   }
 }
@@ -2359,13 +2392,18 @@ void startSetupPortal() {
   // [WIFI AP] [HIGH RISK] This is the authoritative SoftAP start path. Preserve
   // AP+STA mode, address configuration, channel, visibility, and call order.
   // Do not run the STA state machine when no router has been configured.
+#if defined(ACHILLES_AP_ONLY_DIAGNOSTIC)
+  // Keep stored credentials intact while excluding STA activity from this test.
+  WiFi.mode(WIFI_AP);
+#else
   WiFi.mode(wifiSsid.length() > 0 ? WIFI_AP_STA : WIFI_AP);
+#endif
   applyWifiPowerPolicy();
   // Every explicit boot/button/serial activation receives a fresh window. The
   // countdown is armed only after a valid sensor document reaches MQTT.
   setupApExpiryArmed = false;
   setupApHealthyPublishMs = 0;
-  String networkHostname = "VibScope-" + sanitizeIdentifier(deviceId);
+  String networkHostname = "IVSS-" + sanitizeIdentifier(deviceId);
   networkHostname.toLowerCase();
   if (networkHostname.length() > 32) {
     networkHostname = networkHostname.substring(0, 32);
@@ -2376,7 +2414,7 @@ void startSetupPortal() {
   if (!networkIdentityHealthy) {
     // Hostnames are a convenience only. A failed hostname must never prevent
     // the radio, provisioning AP, or a valid STA configuration from starting.
-    Serial.println("[Network] One or more interface hostnames could not be set; IP networking will continue.");
+    CONTROLLER_LOG_PRINTLN("[Network] One or more interface hostnames could not be set; IP networking will continue.");
   }
 
   if (!setupApStarted) {
@@ -2391,7 +2429,7 @@ void startSetupPortal() {
     IPAddress apGw(192, 168, 4, 1);
     IPAddress apMask(255, 255, 255, 0);
     if (!WiFi.softAPConfig(setupApIp, apGw, apMask)) {
-      Serial.println("[AP] Failed to configure the required 192.168.4.1 address.");
+      CONTROLLER_LOG_PRINTLN("[AP] Failed to configure the required 192.168.4.1 address.");
       return;
     }
     setupApStarted = WiFi.softAP(setupApSsid.c_str(), setupApPass.c_str(), 1, 0, 1);
@@ -2401,19 +2439,19 @@ void startSetupPortal() {
       applyWifiPowerPolicy();
     }
     if (setupApStarted && WiFi.softAPIP() != setupApIp) {
-      Serial.println("[AP] Address verification failed; refusing to expose setup on an unexpected address.");
+      CONTROLLER_LOG_PRINTLN("[AP] Address verification failed; refusing to expose setup on an unexpected address.");
       WiFi.softAPdisconnect(true);
       setupApStarted = false;
     }
 
     if (setupApStarted) {
-      Serial.println("[AP] Started setup AP.");
-      Serial.println("[AP] SSID: " + setupApSsid);
-      Serial.println("[AP] Password is not printed; use the provisioned product credential.");
-      Serial.println("[AP] IP: " + WiFi.softAPIP().toString());
-      Serial.println("[AP] Open: http://192.168.4.1 or http://sensor.local");
+      CONTROLLER_LOG_PRINTLN("[AP] Started setup AP.");
+      CONTROLLER_LOG_PRINTLN("[AP] SSID: " + setupApSsid);
+      CONTROLLER_LOG_PRINTLN("[AP] Password is not printed; use the provisioned product credential.");
+      CONTROLLER_LOG_PRINTLN("[AP] IP: " + WiFi.softAPIP().toString());
+      CONTROLLER_LOG_PRINTLN("[AP] Open: http://192.168.4.1 or http://sensor.local");
     } else {
-      Serial.println("[AP] Failed to start setup AP. STA/MQTT/acquisition will continue; recovery retries are rate-limited to once per minute.");
+      CONTROLLER_LOG_PRINTLN("[AP] Failed to start setup AP. STA/MQTT/acquisition will continue; recovery retries are rate-limited to once per minute.");
     }
   }
 
@@ -2428,7 +2466,7 @@ void startSetupPortal() {
     // instead of the user having to know to type an address.
     setupApDnsStarted = dnsServer.start(53, "*", setupApIp);
     if (!setupApDnsStarted) {
-      Serial.println("[AP] Captive-portal DNS failed to start; the setup page still works at the address above.");
+      CONTROLLER_LOG_PRINTLN("[AP] Captive-portal DNS failed to start; the setup page still works at the address above.");
     }
   }
   if (!setupApMdnsStarted) {
@@ -2437,7 +2475,7 @@ void startSetupPortal() {
     // at a time - there is no shared network for the name to collide on.
     setupApMdnsStarted = MDNS.begin("sensor");
     if (!setupApMdnsStarted) {
-      Serial.println("[AP] sensor.local could not start; 192.168.4.1 still works.");
+      CONTROLLER_LOG_PRINTLN("[AP] sensor.local could not start; 192.168.4.1 still works.");
     }
   }
 
@@ -2464,7 +2502,7 @@ void startSetupPortal() {
     }
     server.begin();
     webServerStarted = true;
-    Serial.println("[Web] Setup server started on http://192.168.4.1 or http://sensor.local");
+    CONTROLLER_LOG_PRINTLN("[Web] Setup server started on http://192.168.4.1 or http://sensor.local");
   }
 }
 
@@ -2481,8 +2519,8 @@ void activateRecoverySetupPortal(const char *reason) {
     setupApHealthyPublishMs = 0;
     if (!recoverySetupApLatched) {
       recoverySetupApLatched = true;
-      Serial.print("[Recovery] Setup AP kept open: ");
-      Serial.println(reason);
+      CONTROLLER_LOG_PRINT("[Recovery] Setup AP kept open: ");
+      CONTROLLER_LOG_PRINTLN(reason);
     }
     return;
   }
@@ -2497,10 +2535,10 @@ void activateRecoverySetupPortal(const char *reason) {
   startSetupPortal();
   if (setupApStarted) {
     recoverySetupApLatched = true;
-    Serial.print("[Recovery] Setup AP reopened: ");
-    Serial.println(reason);
+    CONTROLLER_LOG_PRINT("[Recovery] Setup AP reopened: ");
+    CONTROLLER_LOG_PRINTLN(reason);
   } else {
-    Serial.println("[Recovery] Setup AP reopen failed; retrying in 60 seconds.");
+    CONTROLLER_LOG_PRINTLN("[Recovery] Setup AP reopen failed; retrying in 60 seconds.");
   }
 }
 
@@ -2509,10 +2547,14 @@ void armSetupApLifetimeAfterHealthyPublish() {
   if (!setupApStarted || setupApExpiryArmed) return;
   setupApHealthyPublishMs = millis();
   setupApExpiryArmed = true;
-  Serial.println("[AP] Valid sensor telemetry published; setup AP will close in 10 minutes.");
+  CONTROLLER_LOG_PRINTLN("[AP] Valid sensor telemetry published; setup AP will close in 10 minutes.");
 }
 
 void serviceSetupApLifetime() {
+#if defined(ACHILLES_AP_ONLY_DIAGNOSTIC)
+  // A power test must not stop its AP or enable STA after a commissioning timer.
+  return;
+#endif
   if (!setupApStarted || !setupApExpiryArmed ||
       millis() - setupApHealthyPublishMs < SETUP_AP_HEALTHY_WINDOW_MS) {
     return;
@@ -2538,7 +2580,7 @@ void serviceSetupApLifetime() {
   lastRecoverySetupApAttemptMs = 0;
   WiFi.mode(wifiSsid.length() > 0 ? WIFI_STA : WIFI_OFF);
   if (wifiSsid.length() > 0) applyWifiPowerPolicy();
-  Serial.println("[AP] Commissioning window expired; setup AP stopped. A power cycle, setup trigger, or future network/server outage will reopen it.");
+  CONTROLLER_LOG_PRINTLN("[AP] Commissioning window expired; setup AP stopped. A power cycle, setup trigger, or future network/server outage will reopen it.");
 }
 
 bool nodeServerHeartbeatFresh(unsigned long now) {
@@ -2565,41 +2607,45 @@ void mqttMessageReceived(char *topic, uint8_t *payload, unsigned int length) {
     // The loop re-primes waveform/timing state on the actual end-to-end-ready
     // edge. That remains correct even if this heartbeat arrives while a setup
     // AP client is still inside its bounded 20-second radio grace.
-    Serial.println("[Server] Node.js heartbeat received; normal telemetry can resume.");
+    CONTROLLER_LOG_PRINTLN("[Server] Node.js heartbeat received; normal telemetry can resume.");
   }
 }
 
 void announceSetupPortal(const char *reason) {
   if (!setupApStarted) startSetupPortal();
   if (!setupApStarted) {
-    Serial.println("[Setup] Setup portal is unavailable; a restart will retry initialization.");
+    CONTROLLER_LOG_PRINTLN("[Setup] Setup portal is unavailable; a restart will retry initialization.");
     return;
   }
-  Serial.print("[Setup] ");
-  Serial.print(reason);
-  Serial.println(". Setup portal is already active in AP+STA mode.");
-  Serial.println("[Setup] SSID: " + setupApSsid + " | URL: http://192.168.4.1 or http://sensor.local");
+  CONTROLLER_LOG_PRINT("[Setup] ");
+  CONTROLLER_LOG_PRINT(reason);
+  CONTROLLER_LOG_PRINTLN(". Setup portal is already active in AP+STA mode.");
+  CONTROLLER_LOG_PRINTLN("[Setup] SSID: " + setupApSsid + " | URL: http://192.168.4.1 or http://sensor.local");
 }
 
 void beginStaConnection(const char *reason) {
+#if defined(ACHILLES_AP_ONLY_DIAGNOSTIC)
+  staConnectInProgress = false;
+  return;
+#endif
   // [WIFI AP] [HIGH RISK] STA reconnects share the SoftAP radio. Do not add AP
   // client-driven disconnect/reconnect loops here.
   if (wifiSsid.length() == 0) {
     staConnectInProgress = false;
-    Serial.println("[WiFi] STA not configured. Setup AP remains available.");
+    CONTROLLER_LOG_PRINTLN("[WiFi] STA not configured. Setup AP remains available.");
     return;
   }
   const bool wantEnterprise = wifiEnterpriseUser.length() > 0;
   if (wantEnterprise && wifiPass.length() == 0) {
     staConnectInProgress = false;
-    Serial.println("[WiFi] Enterprise username is set but the password is blank. STA held offline.");
+    CONTROLLER_LOG_PRINTLN("[WiFi] Enterprise username is set but the password is blank. STA held offline.");
     return;
   }
   // A WPA2-PSK passphrase is 8-63 characters by standard. A shorter non-blank
   // password can never associate, so say so once instead of retrying forever.
   if (!wantEnterprise && wifiPass.length() > 0 && wifiPass.length() < 8) {
     staConnectInProgress = false;
-    Serial.println("[WiFi] Saved WiFi password is shorter than the 8-character WPA2 "
+    CONTROLLER_LOG_PRINTLN("[WiFi] Saved WiFi password is shorter than the 8-character WPA2 "
                    "minimum. STA held offline; re-enter it in the setup page.");
     return;
   }
@@ -2636,7 +2682,7 @@ void beginStaConnection(const char *reason) {
       wifiEnterpriseActive = false;
       staConnectInProgress = false;
       lastWifiAttemptMs = millis();
-      Serial.printf("[WiFi] Enterprise credential setup failed: identity=%d username=%d password=%d enable=%d.\n",
+      CONTROLLER_LOG_PRINTF("[WiFi] Enterprise credential setup failed: identity=%d username=%d password=%d enable=%d.\n",
                     (int)identityResult, (int)usernameResult,
                     (int)passwordResult, (int)enableResult);
       return;
@@ -2669,7 +2715,7 @@ void beginStaConnection(const char *reason) {
   lastWifiAttemptMs = millis();
   staConnectStartedMs = lastWifiAttemptMs;
   staConnectInProgress = true;
-  Serial.println("[WiFi] STA connecting to '" + wifiSsid + "' (" + String(reason) +
+  CONTROLLER_LOG_PRINTLN("[WiFi] STA connecting to '" + wifiSsid + "' (" + String(reason) +
                   (wantEnterprise ? ", WPA2-Enterprise" : ", WPA/WPA2-PSK") + ").");
   // WiFi.begin() rejects some configurations outright (SSID/passphrase length,
   // STA enable failure, driver config/connect failure). Without checking this
@@ -2677,13 +2723,16 @@ void beginStaConnection(const char *reason) {
   // association in progress, and only surfaced 10 s later as a generic timeout.
   if (beginResult == WL_CONNECT_FAILED) {
     staConnectInProgress = false;
-    Serial.println("[WiFi] ERROR: the WiFi driver refused this connection request "
+    CONTROLLER_LOG_PRINTLN("[WiFi] ERROR: the WiFi driver refused this connection request "
                    "outright (check SSID length 1-32 and password length; a WPA2 "
                    "password must be 8-63 characters).");
   }
 }
 
 void serviceWiFi() {
+#if defined(ACHILLES_AP_ONLY_DIAGNOSTIC)
+  return;
+#endif
   // [WIFI AP] [HIGH RISK] Called continuously from loop(); retries and scans
   // must remain bounded so SoftAP and sensor acquisition remain responsive.
   unsigned long now = millis();
@@ -2693,11 +2742,11 @@ void serviceWiFi() {
     if (status == WL_CONNECTED) {
       staConnectInProgress = false;
       wifiRetryDelayMs = WIFI_RETRY_INITIAL_MS;
-      Serial.println("[WiFi] STA connected.");
-      Serial.println("[WiFi] STA IP: " + WiFi.localIP().toString());
-      Serial.println("[WiFi] RSSI: " + String(WiFi.RSSI()) + " dBm");
+      CONTROLLER_LOG_PRINTLN("[WiFi] STA connected.");
+      CONTROLLER_LOG_PRINTLN("[WiFi] STA IP: " + WiFi.localIP().toString());
+      CONTROLLER_LOG_PRINTLN("[WiFi] RSSI: " + String(WiFi.RSSI()) + " dBm");
     } else if (lastStaStatus == WL_CONNECTED) {
-      Serial.println("[WiFi] STA disconnected. AP remains available; retrying without stopping acquisition.");
+      CONTROLLER_LOG_PRINTLN("[WiFi] STA disconnected. AP remains available; retrying without stopping acquisition.");
       if (mqttClient.connected()) {
         mqttClient.disconnect();
       }
@@ -2746,7 +2795,7 @@ void serviceWiFi() {
     wifiRetryDelayMs = min(wifiRetryDelayMs * 2UL, WIFI_RETRY_MAX_MS);
     // Always report the radio's own reason for the failure. This is the single
     // most useful line in the log when commissioning does not come up.
-    Serial.printf("[WiFi] STA connect attempt timed out after %lu ms. Last radio "
+    CONTROLLER_LOG_PRINTF("[WiFi] STA connect attempt timed out after %lu ms. Last radio "
                   "reason %u: %s. Next retry in %lu ms; AP remains available.\n",
                   staAttemptTimeoutMs, (unsigned)lastStaDisconnectReason,
                   staDisconnectReasonText(lastStaDisconnectReason),
@@ -2760,6 +2809,9 @@ void serviceWiFi() {
 }
 
 void serviceMqtt() {
+#if defined(ACHILLES_AP_ONLY_DIAGNOSTIC)
+  return;
+#endif
   // [MQTT] Broker servicing is deliberately gated by STA availability so
   // acquisition and the setup AP survive broker/network outages.
   unsigned long now = millis();
@@ -2769,7 +2821,7 @@ void serviceMqtt() {
       mqttClient.disconnect();
     }
     if (lastMqttConnected) {
-      Serial.println("[MQTT] Disconnected because STA WiFi or broker config is unavailable.");
+      CONTROLLER_LOG_PRINTLN("[MQTT] Disconnected because STA WiFi or broker config is unavailable.");
       lastMqttConnected = false;
     }
     if (mqttDisconnectedSinceMs == 0) mqttDisconnectedSinceMs = now;
@@ -2793,7 +2845,7 @@ void serviceMqtt() {
 
   if (mqttClient.connected()) {
     if (!lastMqttConnected) {
-      Serial.println("[MQTT] Connected.");
+      CONTROLLER_LOG_PRINTLN("[MQTT] Connected.");
       lastMqttConnected = true;
       mqttSessionProgressMs = now;
       if (mqttConnectedSinceMs == 0) mqttConnectedSinceMs = now;
@@ -2801,7 +2853,7 @@ void serviceMqtt() {
     // Service keepalive and incoming Node heartbeat before making any health
     // decision. PubSubClient returns false when its TCP/MQTT session has died.
     if (!mqttClient.loop()) {
-      Serial.println("[MQTT] Session keepalive failed; rebuilding the connection.");
+      CONTROLLER_LOG_PRINTLN("[MQTT] Session keepalive failed; rebuilding the connection.");
       mqttClient.disconnect();
       lastMqttConnected = false;
       mqttDisconnectedSinceMs = now;
@@ -2826,7 +2878,7 @@ void serviceMqtt() {
     if (!serverReady && heartbeatWaitExpired) {
       if (!nodeServerHeartbeatTimedOut) {
         nodeServerHeartbeatTimedOut = true;
-        Serial.println("[Server] Node.js heartbeat missing for 45 s; telemetry slowed and recovery AP enabled.");
+        CONTROLLER_LOG_PRINTLN("[Server] Node.js heartbeat missing for 45 s; telemetry slowed and recovery AP enabled.");
       }
       activateRecoverySetupPortal("Node.js dashboard server is unavailable");
       // A successful subscribe() only proves that the request bytes were sent;
@@ -2836,7 +2888,7 @@ void serviceMqtt() {
           NODE_SERVER_HEARTBEAT_RESUBSCRIBE_MS) {
         lastNodeHeartbeatSubscribeAttemptMs = now;
         if (!mqttClient.subscribe(NODE_SERVER_HEARTBEAT_TOPIC)) {
-          Serial.println("[MQTT] Heartbeat resubscribe write failed; rebuilding the session.");
+          CONTROLLER_LOG_PRINTLN("[MQTT] Heartbeat resubscribe write failed; rebuilding the session.");
           mqttClient.disconnect();
           lastMqttConnected = false;
           mqttDisconnectedSinceMs = now;
@@ -2856,7 +2908,7 @@ void serviceMqtt() {
     if (serverReady && !setupApBlockingStaAssociation() &&
         mqttSessionProgressMs != 0 &&
         now - mqttSessionProgressMs >= MQTT_SESSION_PROGRESS_TIMEOUT_MS) {
-      Serial.println("[MQTT] No successful telemetry write for 90 s; rebuilding the stale session.");
+      CONTROLLER_LOG_PRINTLN("[MQTT] No successful telemetry write for 90 s; rebuilding the stale session.");
       mqttClient.disconnect();
       lastMqttConnected = false;
       mqttDisconnectedSinceMs = now;
@@ -2874,7 +2926,7 @@ void serviceMqtt() {
   }
 
   if (lastMqttConnected) {
-    Serial.println("[MQTT] Disconnected. rc=" + String(mqttClient.state()));
+    CONTROLLER_LOG_PRINTLN("[MQTT] Disconnected. rc=" + String(mqttClient.state()));
     lastMqttConnected = false;
   }
   mqttConnectedSinceMs = 0;
@@ -2894,7 +2946,7 @@ void serviceMqtt() {
     static unsigned long lastMqttDownLogMs = 0;
     if (now - lastMqttDownLogMs >= MQTT_DOWN_LOG_INTERVAL_MS) {
       lastMqttDownLogMs = now;
-      Serial.println("[MQTT] Broker still unavailable; acquisition and setup AP continue.");
+      CONTROLLER_LOG_PRINTLN("[MQTT] Broker still unavailable; acquisition and setup AP continue.");
     }
   }
 }
@@ -2906,7 +2958,7 @@ static const char HTML_HEAD[] PROGMEM =
   "<!DOCTYPE html><html><head>"
   "<meta charset='UTF-8'>"
   "<meta name='viewport' content='width=device-width,initial-scale=1'>"
-  "<title>VibScope Setup</title>"
+  "<title>IVSS Setup</title>"
   "<style>"
   "@font-face{font-family:'JetBrains Mono';src:url('/assets/jetbrains-mono.woff2') format('woff2');font-style:normal;font-weight:400;font-display:swap}"
   ":root{color-scheme:dark;--bg:#04080b;--panel:#0a141b;--titlebar:#0e1e29;--line:#1c313f;--line-strong:#2c4a5e;"
@@ -2999,10 +3051,10 @@ void handleConfig() {
   String html = FPSTR(HTML_HEAD);
   html.reserve(20000);
   html += "<main class='shell'>";
-  html += String("<div class='top'><div><h1><span class='brand-word'>VibScope</span> Setup</h1><p class='sub'>") + htmlEscape(FIRMWARE_NAME) + " v" + htmlEscape(FIRMWARE_VERSION) + " | Device: " + htmlEscape(deviceId) + "</p></div><span class='badge'>Setup online</span></div>";
+  html += String("<div class='top'><div><h1><span class='brand-word'>IVSS</span> Setup</h1><p class='sub'>") + htmlEscape(FIRMWARE_NAME) + " v" + htmlEscape(FIRMWARE_VERSION) + " | Device: " + htmlEscape(deviceId) + "</p></div><span class='badge'>Setup online</span></div>";
   html += "<p class='lead'>Enter your WiFi and MQTT broker below and press Save. Everything else has a working default.</p>";
   html += "<form id='configForm' method='POST' action='/save'>";
-  html += "<section class='section'><h2>Live Status</h2><div class='status'>";
+  html += "<section class='section' id='liveStatus'><h2>Live Status<small id='liveStatusNote' role='status' aria-live='polite'>Connecting to live status...</small></h2><div class='status'>";
   html += String("<div class='kv'><b>Sensor</b><span>") + htmlEscape(SENSOR_MODEL_NAME) + " | " + htmlEscape(DEVICE_PROTOCOL_NAME) + "</span></div>";
   html += String("<div class='kv'><b>Sensor Profile</b><span>") +
           htmlEscape(ACTIVE_SENSOR_PROFILE.profileKey) + " | " +
@@ -3130,7 +3182,9 @@ void handleConfig() {
           "if(await verifyUploadedProfile(expectedKey)){document.getElementById('currentProfile').value=expectedKey;state.className='upload-state show okay';state.textContent='The profile is active. The upload response was interrupted, but the saved profile was verified.';file.value='';}"
           "else{state.className='upload-state show bad';state.textContent='The upload did not complete. The previous profile remains active. Please try again.';}hideBusy();button.disabled=false;};"
           "xhr.send(new FormData(form));});"
-          "</script></main></body></html>";
+          "</script>";
+  html += FPSTR(IVSS_LIVE_STATUS_SCRIPT);
+  html += "</main></body></html>";
   server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   server.sendHeader("Pragma", "no-cache");
   server.send(200, "text/html; charset=UTF-8", html);
@@ -3206,7 +3260,7 @@ void handleSave() {
   if (newPort.length() > 0) {
     parsedPort = newPort.toInt();
     if (parsedPort < 1 || parsedPort > 65535) {
-      Serial.printf("[Config] Invalid MQTT port %d. Keeping %d.\n", parsedPort, mqttPort);
+      CONTROLLER_LOG_PRINTF("[Config] Invalid MQTT port %d. Keeping %d.\n", parsedPort, mqttPort);
       parsedPort = mqttPort;
     }
   }
@@ -3294,7 +3348,7 @@ void handleSave() {
     "Settings saved successfully. The new configuration is being applied without stopping acquisition.";
   if (pollIntervalClampedToProfile) {
     successMessage +=
-      " The requested acquisition interval was below this sensor profile's safe minimum; VibScope applied " +
+      " The requested acquisition interval was below this sensor profile's safe minimum; IVSS applied " +
       String(parsedPollInterval) + " ms.";
   }
   if (setupApCredentialsChanged) {
@@ -3356,7 +3410,7 @@ void handleSave() {
     staSettingsApplyPending = true;
     wifiRetryDelayMs = WIFI_RETRY_INITIAL_MS;
     lastWifiAttemptMs = millis() - wifiRetryDelayMs;
-    Serial.println("[WiFi] Saved STA settings; association deferred until the setup client disconnects.");
+    CONTROLLER_LOG_PRINTLN("[WiFi] Saved STA settings; association deferred until the setup client disconnects.");
   } else {
     staSettingsApplyPending = false;
     beginStaConnection("settings saved");
@@ -3373,7 +3427,7 @@ void handleProfileUploadStream() {
     WiFiClient client = server.client();
     if (!client || client.localIP() != setupApIp) {
       profileUploadError =
-        "Profile uploads are accepted only through the VibScope access point.";
+        "Profile uploads are accepted only through the IVSS access point.";
       return;
     }
     String filename = upload.filename;
@@ -3515,7 +3569,7 @@ void handleProfileUploadComplete() {
 void handleProfileDownload() {
   if (!requireSetupApRequest()) return;
   server.sendHeader("Content-Disposition",
-                    "attachment; filename=\"VibScope-sensor-profile.json\"");
+                    "attachment; filename=\"IVSS-sensor-profile.json\"");
   server.send(200, "application/json; charset=UTF-8",
               sensorProfileJson(ACTIVE_SENSOR_PROFILE));
 }
@@ -3536,19 +3590,25 @@ void handleStatus() {
   bool staConfigured = wifiSsid.length() > 0;
   bool staConnected = (WiFi.status() == WL_CONNECTED);
   const unsigned long statusNow = millis();
+  const wifi_mode_t wifiMode = WiFi.getMode();
+  const char *wifiModeName = wifiMode == WIFI_AP_STA ? "AP_STA" :
+                           wifiMode == WIFI_AP ? "AP" :
+                           wifiMode == WIFI_STA ? "STA" : "OFF";
   const bool serverHeartbeatFresh = nodeServerHeartbeatFresh(statusNow);
   String json = "{";
   json += "\"deviceId\":\"" + jsonEscape(deviceId) + "\",";
   json += "\"identificationName\":\"" + jsonEscape(identificationName) + "\",";
   json += "\"firmwareName\":\"" + jsonEscape(FIRMWARE_NAME) + "\",";
   json += "\"firmwareVersion\":\"" + jsonEscape(FIRMWARE_VERSION) + "\",";
+  json += "\"uptimeMs\":" + String(statusNow) + ",";
+  json += "\"resetReason\":" + String((int)esp_reset_reason()) + ",";
   json += "\"sensorModel\":\"" + jsonEscape(SENSOR_MODEL_NAME) + "\",";
   json += "\"sensorProfile\":\"" + jsonEscape(ACTIVE_SENSOR_PROFILE.profileKey) + "\",";
   json += "\"sensorProfileSource\":\"" +
           String(sensorProfileLoadedFromStorage ? "uploaded" : "built_in") + "\",";
   json += "\"registerMapVersion\":\"" + jsonEscape(SENSOR_REGISTER_MAP_VERSION) + "\",";
   json += "\"protocol\":\"" + jsonEscape(DEVICE_PROTOCOL_NAME) + "\",";
-  json += "\"wifiMode\":\"AP_STA\",";
+  json += "\"wifiMode\":\"" + String(wifiModeName) + "\",";
   json += "\"ap\":{";
   json += "\"enabled\":";
   json += (setupApStarted ? "true" : "false");
@@ -3557,12 +3617,17 @@ void handleStatus() {
   json += "\"clients\":" + String(WiFi.softAPgetStationNum());
   json += "},";
   json += "\"sta\":{";
+#if defined(ACHILLES_AP_ONLY_DIAGNOSTIC)
+  json += "\"pausedForDiagnostic\":true,";
+#endif
   json += "\"configured\":";
   json += (staConfigured ? "true" : "false");
   json += ",\"connected\":";
   json += (staConnected ? "true" : "false");
   json += ",\"ssid\":\"" + jsonEscape(wifiSsid) + "\",";
   json += "\"ip\":\"" + jsonEscape(staConnected ? WiFi.localIP().toString() : String("")) + "\",";
+  json += "\"lastDisconnectReason\":" + String((unsigned)lastStaDisconnectReason) + ",";
+  json += "\"lastDisconnectText\":\"" + jsonEscape(staDisconnectReasonText(lastStaDisconnectReason)) + "\",";
   json += "\"rssi\":";
   json += (staConnected ? String(WiFi.RSSI()) : String("null"));
   json += "},";
@@ -3581,7 +3646,24 @@ void handleStatus() {
     : String("null");
   json += "},";
   json += "\"sensorBus\":{";
-  json += "\"uart\":2,";
+  json += "\"pollIntervalMs\":" + String(sensorPollIntervalMs) + ",";
+  json += "\"actualIntervalMs\":" + String(lastActualSensorPollIntervalMs) + ",";
+  json += "\"lastReadAgeMs\":";
+  json += lastSensorReadOkMs ? String(statusNow - lastSensorReadOkMs) : String("null");
+  json += ",\"lastReadOk\":";
+  json += lastSensorAcquisitionOk ? "true" : "false";
+  json += ",\"uart\":2,";
+#if defined(SENSOR_ON_PROGRAM_UART_PINS)
+  const bool uart0Released = programmingUartReleased &&
+    !uart_is_driver_installed(UART_NUM_0) && uartGetDebug() < 0;
+  json += "\"uart0Released\":" + String(uart0Released ? "true" : "false") + ",";
+  json += "\"firmwareModbusOnly\":" +
+          String(uart0Released && uart_is_driver_installed(UART_NUM_2)
+                   ? "true" : "false") + ",";
+#endif
+#if defined(ACHILLES_INVERT_DIAGNOSTIC)
+  json += "\"pausedForDiagnostic\":true,";
+#endif
   json += "\"txGpio\":" + String(UART2_TX_PIN) + ",";
   json += "\"rxGpio\":" + String(UART2_RX_PIN) + ",";
   json += "\"baud\":" + String(sensorBaud) + ",";
@@ -3594,7 +3676,9 @@ void handleStatus() {
   json += "\"echoCount\":" + String(modbusEchoCount) + ",";
   json += "\"discardedNoiseBytes\":" + String(modbusNoiseByteCount) + ",";
   json += "\"lastError\":\"" + jsonEscape(String(lastModbusErrorReason)) + "\"";
+  appendSensorRxTraceStatus(json);
   json += "}";
+  statusLedService.appendStatus(json, statusNow);
   json += ",\"reliability\":{";
   json += "\"configStorageHealthy\":" + String(configStorageHealthy ? "true" : "false") + ",";
   json += "\"configStorageError\":\"" +
@@ -3610,6 +3694,7 @@ void handleStatus() {
   json += "\"largestFreeBlock\":" + String(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT));
   json += "}";
   json += "}";
+  server.sendHeader("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0");
   server.send(200, "application/json", json);
 }
 
@@ -3624,11 +3709,14 @@ void handleNotFound() {
 // =============================================================================
 // Reconnection must stay bounded and must never stop SoftAP or acquisition.
 void mqttReconnect() {
+#if defined(ACHILLES_AP_ONLY_DIAGNOSTIC)
+  return;
+#endif
   if (WiFi.status() != WL_CONNECTED || mqttBroker.length() == 0) {
     return;
   }
 
-  Serial.print("[MQTT] Connecting to " + mqttBroker + ":" + String(mqttPort) + " ...");
+  CONTROLLER_LOG_PRINT("[MQTT] Connecting to " + mqttBroker + ":" + String(mqttPort) + " ...");
   bool connected = false;
   if (mqttUser.length() > 0) {
     connected = mqttClient.connect(deviceId.c_str(), mqttUser.c_str(), mqttPass.c_str());
@@ -3640,7 +3728,7 @@ void mqttReconnect() {
     const bool heartbeatSubscribed =
       mqttClient.subscribe(NODE_SERVER_HEARTBEAT_TOPIC);
     if (!heartbeatSubscribed) {
-      Serial.println(" connected, but Node heartbeat subscription failed.");
+      CONTROLLER_LOG_PRINTLN(" connected, but Node heartbeat subscription failed.");
       mqttClient.disconnect();
       mqttRetryDelayMs = MQTT_RETRY_INITIAL_MS;
       mqttConnectedSinceMs = 0;
@@ -3656,10 +3744,10 @@ void mqttReconnect() {
     lastNodeServerHeartbeatMs = 0;
     nodeServerHeartbeatSeen = false;
     nodeServerHeartbeatTimedOut = false;
-    Serial.println(" connected.");
+    CONTROLLER_LOG_PRINTLN(" connected.");
   } else {
     mqttRetryDelayMs = min(mqttRetryDelayMs * 2UL, MQTT_RETRY_MAX_MS);
-    Serial.println(" failed. rc=" + String(mqttClient.state()));
+    CONTROLLER_LOG_PRINTLN(" failed. rc=" + String(mqttClient.state()));
     activateRecoverySetupPortal("MQTT broker connection failed");
   }
 }
@@ -3744,15 +3832,53 @@ unsigned long activeModbusInterFrameGapMs() {
              (unsigned long)calculated);
 }
 
+#if defined(SENSOR_ON_PROGRAM_UART_PINS)
+int discardUartConsoleLog(const char *, va_list) {
+  return 0;
+}
+
+void releaseProgrammingUartForModbus() {
+  // ROM/bootloader work has completed before setup(). Silence SDK and Arduino
+  // logs, finish any queued boot output, then detach UART0 before UART2 owns
+  // GPIO1/GPIO3. This changes firmware routing, not the soldered CH340 wiring.
+  if (programmingUartReleased) return;
+  esp_log_level_set("*", ESP_LOG_NONE);
+  esp_log_set_vprintf(discardUartConsoleLog);
+  // IDF's polling helper avoids the ESP32 ROM transmit-idle routine's bug.
+  (void)uart_wait_tx_idle_polling(UART_NUM_0);
+  uartSetDebug(nullptr);
+  Serial.end();
+  pinMode(UART2_RX_PIN, INPUT);
+  pinMode(UART2_TX_PIN, INPUT);
+  programmingUartReleased = true;
+}
+#endif
+
+void startSensorUart() {
+#if defined(SENSOR_ON_PROGRAM_UART_PINS)
+  // Idempotent: UART0 must never be detached late with stale pin bookkeeping.
+  releaseProgrammingUartForModbus();
+#endif
+#if defined(ACHILLES_INVERT_DIAGNOSTIC)
+  // A firmware-only isolation test: do not drive either soldered TTL wire.
+  pinMode(UART2_RX_PIN, INPUT);
+  pinMode(UART2_TX_PIN, INPUT);
+  snprintf(lastModbusErrorReason, sizeof(lastModbusErrorReason),
+           "diagnostic: sensor UART paused");
+#else
+  Serial2.begin(sensorBaud, activeSensorSerialConfig(),
+                UART2_RX_PIN, UART2_TX_PIN);
+#endif
+}
+
 void restartModbusUart(const char *reason) {
   // [SENSOR PROFILE] [HIGH RISK] Ends and recreates the live sensor UART.
-  Serial.printf("[Modbus] Recovery: restarting UART2 after %u consecutive failures. reason=%s\n",
+  CONTROLLER_LOG_PRINTF("[Modbus] Recovery: restarting UART2 after %u consecutive failures. reason=%s\n",
                 consecutiveModbusFailures, reason ? reason : "unknown");
   rs485SetTransmit(false);
   Serial2.end();
   delay(50);
-  Serial2.begin(sensorBaud, activeSensorSerialConfig(),
-                UART2_RX_PIN, UART2_TX_PIN);
+  startSensorUart();
   flushModbusRx(10);
   useSplitModbusReads = !ACTIVE_SENSOR_PROFILE.supportsContiguousFastFrame;
   consecutiveFastFrameFailures = 0;
@@ -3769,7 +3895,7 @@ void setSensorPollInterval(unsigned long intervalMs, bool persist) {
   sensorPollIntervalMs = clamped;
   currentPublishIntervalMs = clamped;
   const bool saved = !persist || persistCurrentConfig();
-  Serial.printf("[Sensor] Poll interval set to %lu ms (%.2f Hz)%s\n",
+  CONTROLLER_LOG_PRINTF("[Sensor] Poll interval set to %lu ms (%.2f Hz)%s\n",
                 sensorPollIntervalMs, 1000.0f / (float)sensorPollIntervalMs,
                 persist ? (saved ? " and saved" : " but persistence FAILED") : "");
 }
@@ -3804,11 +3930,11 @@ void logModbusError(const char *label, const char *reason, uint16_t detail) {
     return;
   }
   lastLogMs = now;
-  Serial.printf("[Modbus] %s failed: %s", label, reason);
+  CONTROLLER_LOG_PRINTF("[Modbus] %s failed: %s", label, reason);
   if (detail != 0) {
-    Serial.printf(" (0x%04X)", detail);
+    CONTROLLER_LOG_PRINTF(" (0x%04X)", detail);
   }
-  Serial.printf(" | id=0x%02X baud=%lu fcode=0x%02X reg=0x%04X fail=%lu timeout=%lu crc=%lu exc=%lu bad=%lu\n",
+  CONTROLLER_LOG_PRINTF(" | id=0x%02X baud=%lu fcode=0x%02X reg=0x%04X fail=%lu timeout=%lu crc=%lu exc=%lu bad=%lu\n",
                 sensorModbusId, (unsigned long)sensorBaud, sensorReadFunction,
                 sensorAccelRegBase, (unsigned long)modbusFailCount,
                 (unsigned long)modbusTimeoutCount, (unsigned long)modbusCrcFailCount,
@@ -3826,11 +3952,10 @@ void powerCycleSensor() {
   digitalWrite(SENSOR_POWER_PIN, HIGH);
   delay(SENSOR_BOOT_SETTLE_MS);
   feedWatchdog();
-  Serial2.begin(sensorBaud, activeSensorSerialConfig(),
-                UART2_RX_PIN, UART2_TX_PIN);
+  startSensorUart();
   flushModbusRx(20);
   lastModbusRequestEndMs = millis();
-  Serial.println("[Sensor] External sensor power was cycled after prolonged communication failure.");
+  CONTROLLER_LOG_PRINTLN("[Sensor] External sensor power was cycled after prolonged communication failure.");
 }
 
 bool readModbusRegisters(uint16_t startReg, uint16_t count, uint8_t *data,
@@ -3842,6 +3967,10 @@ bool readModbusRegisters(uint16_t startReg, uint16_t count, uint8_t *data,
 bool readModbusRegistersFunction(uint8_t readFunction, uint16_t startReg,
                                  uint16_t count, uint8_t *data,
                                  size_t dataLen, const char *label) {
+#if defined(ACHILLES_INVERT_DIAGNOSTIC)
+  // Leave both GPIOs as inputs, including boot probes and profile retries.
+  return false;
+#endif
   // [SENSOR PROFILE] [HIGH RISK] Timing-sensitive transaction/parser path.
   // Timeout, frame scanning, echo removal, and CRC checks protect live reads.
   const unsigned long now = millis();
@@ -3881,6 +4010,7 @@ bool readModbusRegistersFunction(uint8_t readFunction, uint16_t startReg,
 
   flushModbusRx(2);
 
+  SensorRxTraceScope sensorRxTraceScope(req);
   rs485SetTransmit(true);
   delayMicroseconds(200);
   Serial2.write(req, sizeof(req));
@@ -3914,7 +4044,9 @@ bool readModbusRegistersFunction(uint8_t readFunction, uint16_t startReg,
         memmove(rx, rx + 1, --rxLen);
         saturatingAdd(modbusNoiseByteCount);
       }
-      rx[rxLen++] = (uint8_t)Serial2.read();
+      const uint8_t receivedByte = (uint8_t)Serial2.read();
+      sensorLatestRxTrace.record(receivedByte);
+      rx[rxLen++] = receivedByte;
     }
 
     while (rxLen > 0) {
@@ -4333,7 +4465,7 @@ SensorEngineeringMetrics readSensorEngineeringMetrics() {
       const unsigned long now = millis();
       if (now - lastFrequencyAuditMs >= SENSOR_LOG_INTERVAL_MS) {
         lastFrequencyAuditMs = now;
-        Serial.printf(
+        CONTROLLER_LOG_PRINTF(
           "[Sensor Frequency Audit] profile=%s registers=(0x%04X,0x%04X,0x%04X) raw=(%llu,%llu,%llu) interpreted=(%.1f,%.1f,%.1f)Hz source=sensor_reported suspicious=%d\n",
           ACTIVE_SENSOR_PROFILE.profileKey,
           ACTIVE_SENSOR_PROFILE.frequencyFields[0].address,
@@ -4482,7 +4614,7 @@ bool calibrateSensorBaseline() {
     baselineX = baselineY = baselineZ = 0.0f;
     noiseFloorX = noiseFloorY = noiseFloorZ = 0.0f;
     baselineCalibrated = true;
-    Serial.println(
+    CONTROLLER_LOG_PRINTLN(
       "[Sensor] Baseline calibration bypassed: profile supplies a sensor-reported acceleration magnitude.");
     return true;
   }
@@ -4491,7 +4623,7 @@ bool calibrateSensorBaseline() {
     // resume after the technician disconnects from SoftAP.
     return false;
   }
-  Serial.printf("[Sensor] Baseline calibration: collecting %u static samples. Keep sensor still.\n",
+  CONTROLLER_LOG_PRINTF("[Sensor] Baseline calibration: collecting %u static samples. Keep sensor still.\n",
                 SENSOR_BASELINE_SAMPLES);
 
   // ---- Pass 1: compute mean baseline ----
@@ -4528,7 +4660,7 @@ bool calibrateSensorBaseline() {
     noiseFloorY = 0.15f;
     noiseFloorZ = 0.15f;
     baselineCalibrated = false;
-    Serial.printf("[Sensor] WARNING: Calibration failed (%u/%u samples). Fallback baseline: X=%.4f Y=%.4f Z=%.4f  noiseFloor=%.4f m/s^2\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] WARNING: Calibration failed (%u/%u samples). Fallback baseline: X=%.4f Y=%.4f Z=%.4f  noiseFloor=%.4f m/s^2\n",
                   collected, SENSOR_BASELINE_SAMPLES, baselineX, baselineY, baselineZ, noiseFloorX);
     return false;
   }
@@ -4569,9 +4701,9 @@ bool calibrateSensorBaseline() {
   }
 
   baselineCalibrated = true;
-  Serial.printf("[Sensor] Baseline:   X=%.4f  Y=%.4f  Z=%.4f  m/s^2  (N=%u)\n",
+  CONTROLLER_LOG_PRINTF("[Sensor] Baseline:   X=%.4f  Y=%.4f  Z=%.4f  m/s^2  (N=%u)\n",
                 baselineX, baselineY, baselineZ, collected);
-  Serial.printf("[Sensor] NoiseFloor: X=%.4f  Y=%.4f  Z=%.4f  m/s^2  (N=%u)\n",
+  CONTROLLER_LOG_PRINTF("[Sensor] NoiseFloor: X=%.4f  Y=%.4f  Z=%.4f  m/s^2  (N=%u)\n",
                 noiseFloorX, noiseFloorY, noiseFloorZ, nf_collected);
   return true;
 }
@@ -4676,7 +4808,7 @@ bool computeVibrationRMS(
     unsigned long now = millis();
     if (now - lastLowSampleWarnMs >= SENSOR_LOG_INTERVAL_MS) {
       lastLowSampleWarnMs = now;
-      Serial.printf("[Sensor] WARNING: no valid samples in %lu ms window — Modbus read failed.\n",
+      CONTROLLER_LOG_PRINTF("[Sensor] WARNING: no valid samples in %lu ms window — Modbus read failed.\n",
                     windowMs);
     }
     return false;
@@ -4702,7 +4834,7 @@ bool computeVibrationRMS(
     unsigned long now = millis();
     if (now - lastSparseSampleWarnMs >= SENSOR_LOG_INTERVAL_MS) {
       lastSparseSampleWarnMs = now;
-      Serial.printf("[Sensor] WARNING: only %u samples in %lu ms window at %lu baud — RMS is sparse but Modbus is OK.\n",
+      CONTROLLER_LOG_PRINTF("[Sensor] WARNING: only %u samples in %lu ms window at %lu baud — RMS is sparse but Modbus is OK.\n",
                     sampleCount, windowMs, (unsigned long)sensorBaud);
     }
   }
@@ -4730,7 +4862,7 @@ bool computeVibrationRMS(
       unsigned long now = millis();
       if (now - lastDeadbandWarnMs >= SENSOR_LOG_INTERVAL_MS) {
         lastDeadbandWarnMs = now;
-        Serial.printf("[Sensor] WARNING: deadband/noise floor suppressed measured RMS. rms=(%.5f,%.5f,%.5f) display=(%.5f,%.5f,%.5f)\n",
+        CONTROLLER_LOG_PRINTF("[Sensor] WARNING: deadband/noise floor suppressed measured RMS. rms=(%.5f,%.5f,%.5f) display=(%.5f,%.5f,%.5f)\n",
                       rmsX, rmsY, rmsZ, displayRmsX, displayRmsY, displayRmsZ);
       }
     }
@@ -4792,6 +4924,7 @@ void publishData() {
     }
   }
 
+  lastSensorAcquisitionOk = ok;
   if (!ok) {
     if (sensorReadFailCount < UINT8_MAX) sensorReadFailCount++;
     if (sensorReadFailCount >= 10) {
@@ -4800,7 +4933,7 @@ void publishData() {
       unsigned long now = millis();
       if (now - lastLiveReadFailLogMs >= SENSOR_LOG_INTERVAL_MS) {
         lastLiveReadFailLogMs = now;
-        Serial.println("[Sensor] Bulk and split Modbus reads are failing; publishing an invalid sensor window.");
+        CONTROLLER_LOG_PRINTLN("[Sensor] Bulk and split Modbus reads are failing; publishing an invalid sensor window.");
       }
     }
     // Fall back to last known raw values if available
@@ -5014,35 +5147,35 @@ void publishData() {
   }
 
   if (VERBOSE_SERIAL && shouldLogSensor) {
-    Serial.printf("[Sensor] Config:     baud=%lu id=0x%02X fcode=0x%02X accelReg=0x%04X diag=%d deadband=%.5f nfMult=%.2f\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] Config:     baud=%lu id=0x%02X fcode=0x%02X accelReg=0x%04X diag=%d deadband=%.5f nfMult=%.2f\n",
                   (unsigned long)sensorBaud, sensorModbusId, sensorReadFunction,
                   sensorAccelRegBase, SENSOR_DIAGNOSTIC_MODE ? 1 : 0,
                   RMS_DEADBAND_MS2, NOISE_FLOOR_MULTIPLIER);
-    Serial.printf("[Sensor] Baseline:   X=%.4f  Y=%.4f  Z=%.4f  m/s^2 | noiseFloor X=%.5f Y=%.5f Z=%.5f\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] Baseline:   X=%.4f  Y=%.4f  Z=%.4f  m/s^2 | noiseFloor X=%.5f Y=%.5f Z=%.5f\n",
                   baselineX, baselineY, baselineZ, noiseFloorX, noiseFloorY, noiseFloorZ);
-    Serial.printf("[Sensor] Dynamic:    X=%.5f  Y=%.5f  Z=%.5f  m/s^2\n", dynX, dynY, dynZ);
-    Serial.printf("[Sensor] Peak/P2P:   peak=(%.5f,%.5f,%.5f) p2p=(%.5f,%.5f,%.5f) std=(%.5f,%.5f,%.5f)\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] Dynamic:    X=%.5f  Y=%.5f  Z=%.5f  m/s^2\n", dynX, dynY, dynZ);
+    CONTROLLER_LOG_PRINTF("[Sensor] Peak/P2P:   peak=(%.5f,%.5f,%.5f) p2p=(%.5f,%.5f,%.5f) std=(%.5f,%.5f,%.5f)\n",
                   peakX, peakY, peakZ, p2pX, p2pY, p2pZ, stdX, stdY, stdZ);
-    Serial.printf("[Sensor] Velocity:   rms=(%.2f,%.2f,%.2f) overall=%.2f mm/s valid=%d status=%s confidence=%u\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] Velocity:   rms=(%.2f,%.2f,%.2f) overall=%.2f mm/s valid=%d status=%s confidence=%u\n",
                   eng.velocityRmsX, eng.velocityRmsY, eng.velocityRmsZ, velocityOverall,
                   eng.velocityValid ? 1 : 0, healthStatus.c_str(), confidence);
-    Serial.printf("[Sensor] Frequency:  raw XYZ=(%llu,%llu,%llu) -> (%.1f,%.1f,%.1f) Hz | velOverall=%.2f mm/s\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] Frequency:  raw XYZ=(%llu,%llu,%llu) -> (%.1f,%.1f,%.1f) Hz | velOverall=%.2f mm/s\n",
                   (unsigned long long)eng.rawFreqX,
                   (unsigned long long)eng.rawFreqY,
                   (unsigned long long)eng.rawFreqZ,
                   eng.freqX, eng.freqY, eng.freqZ, velocityOverall);
-    Serial.printf("[Sensor] Temp/Disp:  temp=%.2f C disp=(%.1f,%.1f,%.1f) um\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] Temp/Disp:  temp=%.2f C disp=(%.1f,%.1f,%.1f) um\n",
                   eng.temperatureC, eng.displacementX, eng.displacementY, eng.displacementZ);
-    Serial.printf("[Sensor] FastFrame:  N=%u interval=%lu ms actualRate=%.2f Hz reliable=%d modbusFail=%lu\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] FastFrame:  N=%u interval=%lu ms actualRate=%.2f Hz reliable=%d modbusFail=%lu\n",
                   sampleCount, windowMs, actualSampleRateHz, rmsReliable ? 1 : 0,
                   (unsigned long)modbusFailCount);
-    Serial.printf("[Sensor] Raw:        ax=%.4f  ay=%.4f  az=%.4f  m/s^2\n", rawX, rawY, rawZ);
-    Serial.printf("[Sensor] TrueRMS:    X=%.5f  Y=%.5f  Z=%.5f  m/s^2 | peak X=%.5f Y=%.5f Z=%.5f\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] Raw:        ax=%.4f  ay=%.4f  az=%.4f  m/s^2\n", rawX, rawY, rawZ);
+    CONTROLLER_LOG_PRINTF("[Sensor] TrueRMS:    X=%.5f  Y=%.5f  Z=%.5f  m/s^2 | peak X=%.5f Y=%.5f Z=%.5f\n",
                   rmsX, rmsY, rmsZ, peakX, peakY, peakZ);
-    Serial.printf("[Sensor] DisplayRMS: X=%.5f  Y=%.5f  Z=%.5f  m/s^2 | N=%u  interval=%lu ms\n",
+    CONTROLLER_LOG_PRINTF("[Sensor] DisplayRMS: X=%.5f  Y=%.5f  Z=%.5f  m/s^2 | N=%u  interval=%lu ms\n",
                   displayRmsX, displayRmsY, displayRmsZ, sampleCount, windowMs);
     if (actualSampleRateHz < (targetSampleRateHz * 0.8f)) {
-      Serial.printf("[Sensor] WARNING: achieved %.2f Hz below %.2f Hz target. Check baud, MQTT latency, and RS485 wiring.\n",
+      CONTROLLER_LOG_PRINTF("[Sensor] WARNING: achieved %.2f Hz below %.2f Hz target. Check baud, MQTT latency, and RS485 wiring.\n",
                     actualSampleRateHz, targetSampleRateHz);
     }
   }
@@ -5061,7 +5194,7 @@ void publishData() {
     nodeServerHeartbeatFresh(ts) && !setupApBlockingStaAssociation();
   if (!linkReady) {
     if (shouldLogSensor) {
-      Serial.println("[MQTT] Skipping payload construction; STA/MQTT not ready.");
+      CONTROLLER_LOG_PRINTLN("[MQTT] Skipping payload construction; STA/MQTT not ready.");
     }
     return;
   }
@@ -5263,7 +5396,7 @@ void publishData() {
       } else {
         saturatingAdd(publishFailCount);
         saturatingAdd(recentPublishFails);
-        Serial.printf("[MQTT] PUBLISH %s FAIL | %d bytes\n", topic.c_str(), payload.length());
+        CONTROLLER_LOG_PRINTF("[MQTT] PUBLISH %s FAIL | %d bytes\n", topic.c_str(), payload.length());
         // A false return means the packet was not accepted by the transport.
         // Drop the suspect socket now so serviceMqtt() starts a clean bounded
         // reconnect instead of repeatedly writing into a dead session.
@@ -5276,11 +5409,11 @@ void publishData() {
     } else if (linkReady) {
       saturatingAdd(publishFailCount);
       saturatingAdd(recentPublishFails);
-      Serial.printf("[MQTT] PUBLISH BLOCKED | payload=%u required=%u buffer=%u ready=%d\n",
+      CONTROLLER_LOG_PRINTF("[MQTT] PUBLISH BLOCKED | payload=%u required=%u buffer=%u ready=%d\n",
                     (unsigned)payload.length(), (unsigned)requiredPacketBytes,
                     (unsigned)MQTT_PACKET_BUFFER_SIZE, mqttBufferReady ? 1 : 0);
     } else if (shouldLogSensor) {
-      Serial.println("[MQTT] Skipping publish; STA/MQTT not ready.");
+      CONTROLLER_LOG_PRINTLN("[MQTT] Skipping publish; STA/MQTT not ready.");
     }
     return;
   }
@@ -5289,39 +5422,15 @@ void publishData() {
 // LED
 // =============================================================================
 void updateLed() {
-  unsigned long now = millis();
-  bool wifiConnected = (WiFi.status() == WL_CONNECTED);
-  bool mqttConnected = mqttClient.connected();
-
-  // AP active + STA disconnected: slow blink.
-  if (!wifiConnected) {
-    if (now - lastLedToggleMs >= LED_SLOW_BLINK_MS) {
-      lastLedToggleMs = now;
-      ledState = !ledState;
-      digitalWrite(LED_PIN, ledState ? LOW : HIGH);
-    }
-    return;
-  }
-
-  // STA connected + MQTT disconnected: double blink.
-  if (!mqttConnected) {
-    unsigned long phase = now % LED_DOUBLE_BLINK_PERIOD_MS;
-    bool on = (phase < LED_MQTT_BLINK_MS) ||
-              (phase >= (LED_MQTT_BLINK_MS * 2) && phase < (LED_MQTT_BLINK_MS * 3));
-    digitalWrite(LED_PIN, on ? LOW : HIGH);
-    return;
-  }
-
-  // STA connected + MQTT connected: heartbeat pulse.
-  if (ledPulseEndMs != 0 && (int32_t)(now - ledPulseEndMs) >= 0) {
-    digitalWrite(LED_PIN, HIGH); // off
-    ledPulseEndMs = 0;
-  }
-  if ((int32_t)(now - nextConnectedPulse) >= 0) {
-    digitalWrite(LED_PIN, LOW);  // on
-    ledPulseEndMs       = now + LED_CONNECTED_PULSE_MS;
-    nextConnectedPulse  = now + LED_CONNECTED_INTERVAL_MS;
-  }
+  const unsigned long now = millis();
+#if defined(ACHILLES_INVERT_DIAGNOSTIC)
+  // UART-paused hardware diagnostics retain an independent loop heartbeat.
+  statusLedService.setStatus(true, true, true, true);
+#else
+  statusLedService.setStatus(
+    WiFi.status() == WL_CONNECTED, mqttClient.connected(),
+    nodeServerHeartbeatFresh(now), lastSensorAcquisitionOk);
+#endif
 }
 
 uint64_t monotonicMillis() {
@@ -5347,19 +5456,27 @@ void feedWatchdog() {
 // calibration, web service, sensor reads, or broker servicing can reproduce
 // missing-AP, sensor_fault, watchdog, or responsiveness failures.
 void setup() {
+#if defined(SENSOR_ON_PROGRAM_UART_PINS)
+  releaseProgrammingUartForModbus();
+#endif
+#if defined(ACHILLES_INVERT_DIAGNOSTIC)
+  snprintf(lastModbusErrorReason, sizeof(lastModbusErrorReason),
+           "diagnostic: sensor UART paused");
+#endif
 #if !defined(SENSOR_ON_PROGRAM_UART_PINS)
   Serial.begin(115200);
 #endif
   const bool cpuFrequencySet = setCpuFrequencyMhz(RUNTIME_CPU_FREQUENCY_MHZ);
   pinMode(LED_PIN, OUTPUT);
   pinMode(SETUP_BUTTON_PIN, INPUT_PULLUP);  // BOOT button for on-demand WiFi setup
-  digitalWrite(LED_PIN, HIGH); // off (active-low)
+  digitalWrite(LED_PIN, STATUS_LED_OFF); // off
+  statusLedService.begin();
 
   delay(200);
-  Serial.println("\n[Boot] VibScope Controller starting...");
+  CONTROLLER_LOG_PRINTLN("\n[Boot] IVSS Controller starting...");
 
-  Serial.printf("[Boot] Reset reason code: %d  (1=POWERON 3=SW 4=PANIC 5=INT_WDT 6=TASK_WDT 7=RTC_WDT 12=BROWNOUT)\n", (int)esp_reset_reason());
-  Serial.printf("[Power] CPU target=%lu MHz applied=%d actual=%lu MHz.\n",
+  CONTROLLER_LOG_PRINTF("[Boot] Reset reason code: %d  (1=POWERON 3=SW 4=PANIC 5=INT_WDT 6=TASK_WDT 7=RTC_WDT 12=BROWNOUT)\n", (int)esp_reset_reason());
+  CONTROLLER_LOG_PRINTF("[Power] CPU target=%lu MHz applied=%d actual=%lu MHz.\n",
                 (unsigned long)RUNTIME_CPU_FREQUENCY_MHZ,
                 cpuFrequencySet ? 1 : 0,
                 (unsigned long)getCpuFrequencyMhz());
@@ -5374,18 +5491,18 @@ void setup() {
 #endif
   const esp_err_t wdtAddResult = esp_task_wdt_add(NULL);
   watchdogReady = (wdtAddResult == ESP_OK) || (esp_task_wdt_status(NULL) == ESP_OK);
-  Serial.printf("[WDT] init=%d add=%d active=%d\n",
+  CONTROLLER_LOG_PRINTF("[WDT] init=%d add=%d active=%d\n",
                 (int)wdtInitResult, (int)wdtAddResult, watchdogReady ? 1 : 0);
   feedWatchdog();
 
-  Serial.println("[Setup] WiFi/MQTT page starts at http://192.168.4.1 (or http://sensor.local) and closes 10 minutes after healthy telemetry begins.");
+  CONTROLLER_LOG_PRINTLN("[Setup] WiFi/MQTT page starts at http://192.168.4.1 (or http://sensor.local) and closes 10 minutes after healthy telemetry begins.");
 
   randomSeed(esp_random());
 
   // [WIFI AP] Load configuration first so the portal can use AP-only mode when
   // no STA network exists, avoiding an unnecessary second radio interface.
   loadPreferences();
-  // VibScope owns credentials in Preferences. Keep the Arduino WiFi driver
+  // IVSS owns credentials in Preferences. Keep the Arduino WiFi driver
   // from separately persisting stale PSK/802.1X state across retries.
   WiFi.persistent(false);
   // Register before any interface is started so the very first association
@@ -5400,17 +5517,17 @@ void setup() {
   // contract; changes affect blocking time and whether full telemetry fits.
   mqttBufferReady = mqttClient.setBufferSize(MQTT_PACKET_BUFFER_SIZE);
   mqttClient.setSocketTimeout(1);
-  Serial.printf("[MQTT] packet buffer=%u ready=%d\n",
+  CONTROLLER_LOG_PRINTF("[MQTT] packet buffer=%u ready=%d\n",
                 (unsigned)MQTT_PACKET_BUFFER_SIZE, mqttBufferReady ? 1 : 0);
 
   if (wifiSsid.length() > 0) {
     beginStaConnection("boot");
   } else {
-    Serial.println("[Boot] No WiFi credentials saved. Setup AP is active at http://192.168.4.1 (or http://sensor.local)");
+    CONTROLLER_LOG_PRINTLN("[Boot] No WiFi credentials saved. Setup AP is active at http://192.168.4.1 (or http://sensor.local)");
   }
 
   if (mqttBroker.length() == 0) {
-    Serial.println("[Boot] MQTT broker is empty. Configure it from the setup AP.");
+    CONTROLLER_LOG_PRINTLN("[Boot] MQTT broker is empty. Configure it from the setup AP.");
   }
 
   if (SENSOR_POWER_PIN >= 0) {
@@ -5418,13 +5535,12 @@ void setup() {
     digitalWrite(SENSOR_POWER_PIN, HIGH);
   }
   // [SENSOR PROFILE] Start UART only after the active profile/config is loaded.
-  Serial2.begin(sensorBaud, activeSensorSerialConfig(),
-                UART2_RX_PIN, UART2_TX_PIN);
+  startSensorUart();
   if (RS485_DE_RE_PIN >= 0) {
     pinMode(RS485_DE_RE_PIN, OUTPUT);
     rs485SetTransmit(false); // receive mode idle
   }
-  Serial.printf("[Sensor] UART2 started TX=%d RX=%d baud=%lu\n",
+  CONTROLLER_LOG_PRINTF("[Sensor] UART2 started TX=%d RX=%d baud=%lu\n",
                 UART2_TX_PIN, UART2_RX_PIN, (unsigned long)sensorBaud);
 
   delay(SENSOR_BOOT_SETTLE_MS);
@@ -5445,10 +5561,10 @@ void setup() {
   baselineCalibrationPending =
     !sensorReadyForCalibration || !calibrateSensorBaseline();
   if (baselineCalibrationPending) {
-    Serial.println("[Sensor] Baseline calibration deferred until communication is available.");
+    CONTROLLER_LOG_PRINTLN("[Sensor] Baseline calibration deferred until communication is available.");
   }
   mqttDisconnectedSinceMs = millis();
-  Serial.println("[Boot] Runtime started. Setup AP remains open until 10 minutes after the first valid MQTT publish.");
+  CONTROLLER_LOG_PRINTLN("[Boot] Runtime started. Setup AP remains open until 10 minutes after the first valid MQTT publish.");
 }
 
 // Reopen the commissioning AP after its automatic shutdown.
@@ -5459,7 +5575,7 @@ void checkSetupTriggers() {
   if (digitalRead(SETUP_BUTTON_PIN) == LOW) {
     if (setupBtnDownMs == 0) setupBtnDownMs = millis();
     else if (millis() - setupBtnDownMs >= SETUP_BUTTON_HOLD_MS) {
-      Serial.println("[Setup] BOOT button held.");
+      CONTROLLER_LOG_PRINTLN("[Setup] BOOT button held.");
       setupBtnDownMs = 0;
       startSetupPortal();
       announceSetupPortal("BOOT button held");
@@ -5478,7 +5594,7 @@ void checkSetupTriggers() {
     if (c == '\n' || c == '\r') {
       serialCmd.trim();
       if (serialCmd.equalsIgnoreCase("setup") || serialCmd.equalsIgnoreCase("ap")) {
-        Serial.println("[Setup] Serial command received.");
+        CONTROLLER_LOG_PRINTLN("[Setup] Serial command received.");
         serialCmd = "";
         startSetupPortal();
         announceSetupPortal("serial command");
@@ -5578,6 +5694,7 @@ void loop() {
     sensorPowerCycleAttempted = false;
     lastModbusSuccessMs = millis();
     lastSensorReadOkMs = 0;
+    lastSensorAcquisitionOk = false;
     snprintf(lastModbusErrorReason, sizeof(lastModbusErrorReason), "none");
     restartModbusUart("sensor profile changed");
     delay(SENSOR_BOOT_SETTLE_MS);
@@ -5586,7 +5703,7 @@ void loop() {
       baselineCalibrationPending = setupApBlockingStaAssociation() ||
                                    !calibrateSensorBaseline();
     } else {
-      Serial.println("[Profile] Sensor did not answer the new profile; calibration will retry after communication returns.");
+      CONTROLLER_LOG_PRINTLN("[Profile] Sensor did not answer the new profile; calibration will retry after communication returns.");
     }
     lastBaselineCalibrationAttemptMs = millis();
   }
@@ -5621,7 +5738,7 @@ void loop() {
         minLargestFreeBlock = largestFreeBlock;
       }
       if (!heap_caps_check_integrity_all(false)) {
-        Serial.println("[HEAP] Integrity failure detected; restarting before corrupted state is used.");
+        CONTROLLER_LOG_PRINTLN("[HEAP] Integrity failure detected; restarting before corrupted state is used.");
         delay(20);
         esp_restart();
       }
@@ -5632,12 +5749,12 @@ void loop() {
         lowHeapHeartbeatCount = 0;
       }
       if (lowHeapHeartbeatCount >= 3) {
-        Serial.printf("[HEAP] Sustained low memory heap=%u largest=%u; controlled restart.\n",
+        CONTROLLER_LOG_PRINTF("[HEAP] Sustained low memory heap=%u largest=%u; controlled restart.\n",
                       freeHeap, largestFreeBlock);
         delay(20);
         esp_restart();
       }
-      Serial.printf("[HB] up=%lus heap=%u min=%u wifi=%s mqtt=%s modbus(fail=%lu to=%lu crc=%lu) pub(ok=%lu fail=%lu) lastReadOk=%ldms lastPubOk=%ldms\n",
+      CONTROLLER_LOG_PRINTF("[HB] up=%lus heap=%u min=%u wifi=%s mqtt=%s modbus(fail=%lu to=%lu crc=%lu) pub(ok=%lu fail=%lu) lastReadOk=%ldms lastPubOk=%ldms\n",
         hbNow / 1000, freeHeap, minFreeHeap,
         (WiFi.status() == WL_CONNECTED ? "up" : "down"),
         (mqttClient.connected() ? "up" : "down"),
@@ -5645,12 +5762,12 @@ void loop() {
         (unsigned long)publishSuccessCount, (unsigned long)publishFailCount,
         lastSensorReadOkMs ? (long)(hbNow - lastSensorReadOkMs) : -1L,
         lastPublishOkMs ? (long)(hbNow - lastPublishOkMs) : -1L);
-      Serial.printf("[HB] acquisition interval=%lu ms (%.1f Hz) mqttMax=%.1f Hz rssi=%d dBm\n",
+      CONTROLLER_LOG_PRINTF("[HB] acquisition interval=%lu ms (%.1f Hz) mqttMax=%.1f Hz rssi=%d dBm\n",
         currentPublishIntervalMs, 1000.0f / (float)currentPublishIntervalMs,
         MQTT_PUBLISH_RATE_HZ,
         (WiFi.status() == WL_CONNECTED) ? WiFi.RSSI() : 0);
       long recoveryLeftMs = (long)modbusRecoveryRemainingMs();
-      Serial.printf("[HB] modbus ok=%lu fail=%lu consecutive=%u last='%s' configuredPoll=%lu ms effectivePoll=%lu ms actual=%lu ms splitTx=%u recoveryLeft=%ld ms heap=%u\n",
+      CONTROLLER_LOG_PRINTF("[HB] modbus ok=%lu fail=%lu consecutive=%u last='%s' configuredPoll=%lu ms effectivePoll=%lu ms actual=%lu ms splitTx=%u recoveryLeft=%ld ms heap=%u\n",
         (unsigned long)modbusSuccessCount,
         (unsigned long)modbusFailCount,
         consecutiveModbusFailures,
@@ -5661,16 +5778,16 @@ void loop() {
         useSplitModbusReads ? splitProfileTransactionsPerSample() : 1U,
         recoveryLeftMs,
         freeHeap);
-      Serial.printf("[HB] heap largest=%u minLargest=%u config=%d profile=%d networkIdentity=%d wdt=%d mqttBuffer=%d telemetryMemory=%d\n",
+      CONTROLLER_LOG_PRINTF("[HB] heap largest=%u minLargest=%u config=%d profile=%d networkIdentity=%d wdt=%d mqttBuffer=%d telemetryMemory=%d\n",
                     largestFreeBlock, minLargestFreeBlock,
                     configStorageHealthy ? 1 : 0, profileStorageHealthy ? 1 : 0,
                     networkIdentityHealthy ? 1 : 0,
                      watchdogReady ? 1 : 0,
                      mqttBufferReady ? 1 : 0, telemetryMemoryHealthy ? 1 : 0);
-      Serial.printf("[HB] power cpu=%luMHz loopIdle=%lums wifiRetry=%lums mqttRetry=%lums\n",
+      CONTROLLER_LOG_PRINTF("[HB] power cpu=%luMHz loopIdle=%lums wifiRetry=%lums mqttRetry=%lums\n",
                     (unsigned long)getCpuFrequencyMhz(), LOOP_IDLE_DELAY_MS,
                     wifiRetryDelayMs, mqttRetryDelayMs);
-      Serial.printf("[HB] sta mode=%s inProgress=%d gotIpEver=%d disconnects=%lu "
+      CONTROLLER_LOG_PRINTF("[HB] sta mode=%s inProgress=%d gotIpEver=%d disconnects=%lu "
                     "txPower=%d(0.25dBm) lastReason=%u: %s\n",
                     wifiEnterpriseActive ? "enterprise" : "psk",
                     staConnectInProgress ? 1 : 0, staEverGotIp ? 1 : 0,

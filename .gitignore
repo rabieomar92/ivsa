@@ -3,3 +3,19 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+
+# Local tools, scratch checkouts, historical snapshots and unrelated projects.
+.venv/
+.agents/
+.codex/
+__pycache__/
+*.pyc
+tmp/
+_to_delete/
+recovered/
+plot_fix_stage/
+sensor_website*/
+backups/*
+!backups/Achilles/
+release/*.zip
+release/*.zip.sha256

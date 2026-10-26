@@ -30,7 +30,7 @@ assert.match(source, /MQTT_SESSION_PROGRESS_TIMEOUT_MS\s*=\s*90000/);
 assert.match(source, /NODE_SERVER_HEARTBEAT_TIMEOUT_MS\s*=\s*45000/);
 assert.match(source, /NODE_SERVER_HEARTBEAT_RESUBSCRIBE_MS\s*=\s*60000/);
 assert.match(source, /MQTT_OUTAGE_AP_TRIGGER_MS\s*=\s*15000/);
-assert.match(source, /NODE_SERVER_HEARTBEAT_TOPIC\s*=\s*"vibscope\/server\/heartbeat"/);
+assert.match(source, /NODE_SERVER_HEARTBEAT_TOPIC\s*=\s*"ivss\/server\/heartbeat"/);
 assert.match(source, /mqttSessionProgressMs\s*=\s*lastPublishOkMs/);
 assert.match(source, /No successful telemetry write for 90 s; rebuilding the stale session/);
 assert.match(source, /if \(setupApBlockingStaAssociation\(\)\) \{[\s\S]*?mqttClient\.loop\(\)/);

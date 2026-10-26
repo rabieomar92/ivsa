@@ -1,0 +1,68 @@
+{
+  "schemaVersion": 3,
+  "profileKey": "banner_qm30vt3",
+  "sensorType": "banner_qm30vt3",
+  "modelName": "Banner QM30VT3",
+  "registerMapVersion": "QM30VT3-244688-20260210",
+  "modbus": {
+    "mode": "rtu",
+    "baud": 19200,
+    "slaveId": 1,
+    "serialFormat": "8N1",
+    "addressConvention": "pdu_zero_based",
+    "defaultReadFunction": 3,
+    "maximumReadRegisters": 16
+  },
+  "measurements": {
+    "acceleration": {
+      "unit": "m/s^2",
+      "semantics": "sensor_reported_magnitude",
+      "x": {"enabled": true, "function": 3, "address": 33, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.00980665, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 34, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.00980665, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 35, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.00980665, "offset": 0.0}
+    },
+    "velocity": {
+      "unit": "mm/s",
+      "semantics": "sensor_reported_rms",
+      "x": {"enabled": true, "function": 3, "address": 36, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.001, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 38, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.001, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 40, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.001, "offset": 0.0}
+    },
+    "displacement": {
+      "unit": "um",
+      "semantics": "sensor_reported",
+      "x": {"enabled": false},
+      "y": {"enabled": false},
+      "z": {"enabled": false}
+    },
+    "frequency": {
+      "unit": "Hz",
+      "semantics": "sensor_reported",
+      "x": {"enabled": true, "function": 3, "address": 25, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.1, "offset": 0.0},
+      "y": {"enabled": true, "function": 3, "address": 26, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.1, "offset": 0.0},
+      "z": {"enabled": true, "function": 3, "address": 27, "registerCount": 1, "dataType": "uint16", "byteOrder": "AB", "scale": 0.1, "offset": 0.0}
+    },
+    "temperature": {
+      "unit": "C",
+      "value": {"enabled": true, "function": 3, "address": 42, "registerCount": 1, "dataType": "int16", "byteOrder": "AB", "scale": 0.01, "offset": 0.0}
+    }
+  },
+  "frequencyRangeHz": {
+    "minimum": 0.0,
+    "maximum": 6553.5
+  },
+  "acquisition": {
+    "minimumPollIntervalMs": 300
+  },
+  "vendorClock": {
+    "enabled": false,
+    "startRegister": 0,
+    "registerCount": 0
+  },
+  "bulkRead": {
+    "enabled": false,
+    "function": 3,
+    "startAddress": 0,
+    "registerCount": 0
+  }
+}

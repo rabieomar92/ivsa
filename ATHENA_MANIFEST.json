@@ -1,0 +1,434 @@
+{
+  "name": "Athena",
+  "savedDate": "2026-10-26",
+  "timezone": "Asia/Kuala_Lumpur",
+  "defaultEnvironment": "athena",
+  "validation": {
+    "builds": [
+      "athena",
+      "achilles_current"
+    ],
+    "tests": [
+      "generic_modbus_decoder",
+      "mqtt_long_outage_recovery",
+      "reliability_contract",
+      "live_status_page",
+      "status_led_pattern",
+      "status_led_service"
+    ],
+    "uploaded": false,
+    "physicalSensorAndLedVerification": "pending"
+  },
+  "files": [
+    {
+      "path": ".gitattributes",
+      "bytes": 94,
+      "sha256": "8803eb2d6c9cf84640c7287ebd975e46e71577d5bdea810496069fb54b3a2f96"
+    },
+    {
+      "path": ".gitignore",
+      "bytes": 342,
+      "sha256": "b4935473603977d443b83f3336b098230f924a2631ddb273f9e9fe0f12c9e8c5"
+    },
+    {
+      "path": "README.md",
+      "bytes": 4892,
+      "sha256": "151e87e04462b0b94920f05b6a7416d92559bb7383a72b42991c704840364df9"
+    },
+    {
+      "path": "RELEASE_ATHENA.md",
+      "bytes": 1555,
+      "sha256": "6eacd7ffc61a1eafe9c93488dbfd5a0ad5a609212cb9e1d841896477b2139e74"
+    },
+    {
+      "path": "SENSOR_PROFILES.md",
+      "bytes": 10900,
+      "sha256": "a01f3e072c08136cd1c40d096182a2d16f925e20a6424e5c4dcfdc84ce351f7b"
+    },
+    {
+      "path": "SENSOR_PROFILE_BEGINNER_GUIDE.md",
+      "bytes": 10696,
+      "sha256": "2527fe9ec3e2eaaa201b6178acc2939db6933661b2e1c6a32de1e7a21e030117"
+    },
+    {
+      "path": "artifacts/Athena-20261026/README.md",
+      "bytes": 1289,
+      "sha256": "8a4f5c062ca71fedb4d73afbb2702bb97a2c999d54bfb7780da28b0af9b2a1fd"
+    },
+    {
+      "path": "artifacts/Athena-20261026/boot_app0.bin",
+      "bytes": 8192,
+      "sha256": "f94c5d786a7a8fab06ac5d10e33bf37711a6697636dc037559ea19cc410a17f0"
+    },
+    {
+      "path": "artifacts/Athena-20261026/bootloader.bin",
+      "bytes": 17536,
+      "sha256": "3d234a7471f67b013686dabd4dee7c1fa915c9928463616a94bc9297acf1abf8"
+    },
+    {
+      "path": "artifacts/Athena-20261026/build-info.json",
+      "bytes": 850,
+      "sha256": "35952144b466defff29b2d5bb7f2c368fecced8dae53e10dfaf5a4fb32d0f7f2"
+    },
+    {
+      "path": "artifacts/Athena-20261026/build_identity.h",
+      "bytes": 176,
+      "sha256": "2378d06118103651e6be11334e40c1bf6b578dbb4009977c3ba206ba99c05157"
+    },
+    {
+      "path": "artifacts/Athena-20261026/firmware.bin",
+      "bytes": 1193936,
+      "sha256": "4617b077671dd8769e41f5bfd23bef3d917c58f0fa2927316073480dfe0d16bb"
+    },
+    {
+      "path": "artifacts/Athena-20261026/partitions.bin",
+      "bytes": 3072,
+      "sha256": "148b959cbff1c38aa8e1d5c0ba9d612c54997b945e56a63f41223eef650653a1"
+    },
+    {
+      "path": "artifacts/Athena-20261026/serial_registry.json",
+      "bytes": 2569,
+      "sha256": "42b2a49e9fbc61148261943b24032b1cf9ed76b80a8c440d45bfc79c3f296cce"
+    },
+    {
+      "path": "assets/JetBrainsMono-OFL.txt",
+      "bytes": 4399,
+      "sha256": "a76abf002c49097d146e86740a3105a5d00450b1592e820a1109a8c5680cd697"
+    },
+    {
+      "path": "assets/jetbrains_mono_regular.woff2",
+      "bytes": 92164,
+      "sha256": "a9cb1cd82332b23a47e3a1239d25d13c86d16c4220695e34b243effa999f45f2"
+    },
+    {
+      "path": "backups/Achilles/.gitignore",
+      "bytes": 94,
+      "sha256": "67cca8c6c85c4698d0b5592a07a40ef2c16e9270cbe2773c6798944272525125"
+    },
+    {
+      "path": "backups/Achilles/MANIFEST.json",
+      "bytes": 5390,
+      "sha256": "915e4a4a4858cb21341aa13b941f4d045c2f3d93ede5fc299d0bd4f16d270675"
+    },
+    {
+      "path": "backups/Achilles/SENSOR_PROFILES.md",
+      "bytes": 10900,
+      "sha256": "a01f3e072c08136cd1c40d096182a2d16f925e20a6424e5c4dcfdc84ce351f7b"
+    },
+    {
+      "path": "backups/Achilles/SENSOR_PROFILE_BEGINNER_GUIDE.md",
+      "bytes": 10696,
+      "sha256": "2527fe9ec3e2eaaa201b6178acc2939db6933661b2e1c6a32de1e7a21e030117"
+    },
+    {
+      "path": "backups/Achilles/assets/JetBrainsMono-OFL.txt",
+      "bytes": 4399,
+      "sha256": "a76abf002c49097d146e86740a3105a5d00450b1592e820a1109a8c5680cd697"
+    },
+    {
+      "path": "backups/Achilles/assets/SPACE_GROTESK_OFL.txt",
+      "bytes": 4495,
+      "sha256": "564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72"
+    },
+    {
+      "path": "backups/Achilles/assets/jetbrains_mono_regular.woff2",
+      "bytes": 92164,
+      "sha256": "a9cb1cd82332b23a47e3a1239d25d13c86d16c4220695e34b243effa999f45f2"
+    },
+    {
+      "path": "backups/Achilles/assets/space_grotesk_bold.ttf",
+      "bytes": 69308,
+      "sha256": "3e756954468ff1cb302dae0414262e72f76a67d87bef3fa1f3226cd0fb9b2d85"
+    },
+    {
+      "path": "backups/Achilles/include/README",
+      "bytes": 1301,
+      "sha256": "dc6d9be88119a80edf773eb5a659f4470caf81ed5e95dbfd0cd3c7a9686ccd8c"
+    },
+    {
+      "path": "backups/Achilles/include/build_identity.h",
+      "bytes": 176,
+      "sha256": "462b126ec0ec3b6dbdfe1146ce4bdfd92dd21f7a40f158a967f3a36a38aae92b"
+    },
+    {
+      "path": "backups/Achilles/include/sensor_profile.h",
+      "bytes": 5600,
+      "sha256": "c4f1aab64c9f03e89c42fd6639e873669ee4710356d74c4cca488cd940615e97"
+    },
+    {
+      "path": "backups/Achilles/lib/README",
+      "bytes": 1100,
+      "sha256": "9e753e4bef2bb4c7a3784561f50d0c42ceb7bd0c65f183e73209e86ec9892192"
+    },
+    {
+      "path": "backups/Achilles/platformio.ini",
+      "bytes": 2775,
+      "sha256": "282a83431fb1d15f96213a5ea4b046b1414692f9cb5a381d6b775e86ca2f7e2f"
+    },
+    {
+      "path": "backups/Achilles/scripts/apply_radio_minimal_patch.py",
+      "bytes": 8850,
+      "sha256": "c218cae86486ff5dc918230e863667953413e4aee15dd46f5e5c47870fcc5b1e"
+    },
+    {
+      "path": "backups/Achilles/scripts/erase_before_upload.py",
+      "bytes": 822,
+      "sha256": "e4b0ee9955e2b2d5b979cea4b42a838792d85493cc1afb556f3d85b035d80a8e"
+    },
+    {
+      "path": "backups/Achilles/scripts/generate_serial.py",
+      "bytes": 2092,
+      "sha256": "a02fb1d795f93b1e74b49b9a8ed9533f79fadc676a65a5b9f175c7c3dad75a90"
+    },
+    {
+      "path": "backups/Achilles/scripts/remove_live_tab.py",
+      "bytes": 4641,
+      "sha256": "8855b25c7675ac4e652d0b4fcf5cd49587c0e2e9889a156793a62756bea83e00"
+    },
+    {
+      "path": "backups/Achilles/scripts/serial_registry.json",
+      "bytes": 2217,
+      "sha256": "1ad13e151597b7abb59255b12474099430aca83864dfb10f28213991c5544443"
+    },
+    {
+      "path": "backups/Achilles/sensor_profiles/README.md",
+      "bytes": 545,
+      "sha256": "1e9b1048c5333e9f722607b062b9ece61c041818ccf9b8c1257d3a9c7bfcebc8"
+    },
+    {
+      "path": "backups/Achilles/sensor_profiles/banner_qm30vt3.json",
+      "bytes": 2762,
+      "sha256": "721da4327e3b9b52656de92d9f3f0e6475883a01d1e625db2f2d3f915767ea27"
+    },
+    {
+      "path": "backups/Achilles/sensor_profiles/bx2601a_wz01m.json",
+      "bytes": 3112,
+      "sha256": "cacd9a7fefee2115d7536745a51738485a05c5b5434e05d742f8d7ee039d8c08"
+    },
+    {
+      "path": "backups/Achilles/sensor_profiles/bx2601a_wz01m_bulkread.json",
+      "bytes": 4048,
+      "sha256": "d3a65fcac3bc453e3cd6547d95d86aa6179d4ad6c5bb535fd1c3b4e50fcf2f58"
+    },
+    {
+      "path": "backups/Achilles/sensor_profiles/bx2601a_wz01m_communication_test.json",
+      "bytes": 3125,
+      "sha256": "8feb97a5a9c748cbe2b6c0b9fe573c0d088e109d42c25a320b36f6e628bc42a4"
+    },
+    {
+      "path": "backups/Achilles/sensor_profiles/bydr3016zw.json",
+      "bytes": 2719,
+      "sha256": "97fdc3911ba18f24010d54b9765d6d57a41e38d81f3556dd5cd9438001684607"
+    },
+    {
+      "path": "backups/Achilles/sensor_profiles/schema-v3.json",
+      "bytes": 12151,
+      "sha256": "f8d608351cc51d4cf154a27a32ff4358ce1ce0fc010afab2cd0a517a72ffc353"
+    },
+    {
+      "path": "backups/Achilles/sensor_profiles/witmotion_wtvb01.json",
+      "bytes": 3127,
+      "sha256": "f93cf0098b039ecd2d1c6599cca030b7ce6733f24885da30a9e2b1ed5c317101"
+    },
+    {
+      "path": "backups/Achilles/src/main.cpp",
+      "bytes": 261316,
+      "sha256": "d8a36585fde4c7eb1ee24610023752e39892927a421673e77fe20e237935c48f"
+    },
+    {
+      "path": "backups/Achilles/src/main_2.cpp",
+      "bytes": 9526,
+      "sha256": "be618303e1d24669e88416b3f7d1496f5c8782801521cf81a873fd6d1577a5b9"
+    },
+    {
+      "path": "backups/Achilles/test/README",
+      "bytes": 529,
+      "sha256": "95291bce496cd8b6f92ab6f9359119d77f02fc22eec7047cc38cc818a38c2b5d"
+    },
+    {
+      "path": "backups/Achilles/test/generic_modbus_decoder_test.js",
+      "bytes": 12695,
+      "sha256": "976346174e4bd1b2c4b26a527fcf025278f1a3d57b7cce7013612f7da6c0786b"
+    },
+    {
+      "path": "backups/Achilles/test/mqtt_long_outage_recovery_test.js",
+      "bytes": 10211,
+      "sha256": "c41195a021e0eb62c94ec5691b9f1a6c873fa2ef5b48b7d878a798d6362d4afb"
+    },
+    {
+      "path": "backups/Achilles/test/reliability_contract_test.js",
+      "bytes": 18526,
+      "sha256": "6e5ead9cc2aa2980ab1d06a3fac9c95958d2286443e5f512fd03b199c563cac6"
+    },
+    {
+      "path": "include/build_identity.h",
+      "bytes": 176,
+      "sha256": "9d065cf298c86ab5da86a0f4e0356b98cf07b8f960f45eb021c7b80ee7a3ab3f"
+    },
+    {
+      "path": "include/live_status_page.h",
+      "bytes": 4643,
+      "sha256": "981d8c6abb50b628eac729aa03a3c4d0b7a4b33063776557aa6445c65b628166"
+    },
+    {
+      "path": "include/sensor_profile.h",
+      "bytes": 5600,
+      "sha256": "c4f1aab64c9f03e89c42fd6639e873669ee4710356d74c4cca488cd940615e97"
+    },
+    {
+      "path": "include/sensor_rx_trace.h",
+      "bytes": 2249,
+      "sha256": "379ec7a0fa41b843f64c382c900badceb7c9887c86f3b03b54d0272a9301dda1"
+    },
+    {
+      "path": "include/status_led.h",
+      "bytes": 3629,
+      "sha256": "7b10f9298cd110db940b6ea16bab1fefe276b072bcfa41256c109a492b851c78"
+    },
+    {
+      "path": "include/status_led_pattern.h",
+      "bytes": 1990,
+      "sha256": "922a473092a2bff57a62316661002e7dc73b4b41791eeeb805a331cb90944509"
+    },
+    {
+      "path": "platformio.ini",
+      "bytes": 3900,
+      "sha256": "a9e83e2eb5f0d3c439ca8e3b6b8bb205f70fa673aff2700fb3a26d893d957b25"
+    },
+    {
+      "path": "scripts/erase_before_upload.py",
+      "bytes": 822,
+      "sha256": "e4b0ee9955e2b2d5b979cea4b42a838792d85493cc1afb556f3d85b035d80a8e"
+    },
+    {
+      "path": "scripts/generate_serial.py",
+      "bytes": 2092,
+      "sha256": "a02fb1d795f93b1e74b49b9a8ed9533f79fadc676a65a5b9f175c7c3dad75a90"
+    },
+    {
+      "path": "scripts/live_status_overlay.py",
+      "bytes": 2015,
+      "sha256": "0a41af27c3551c787727a2d755d146176476eeee04b58b44c6b0e134cbe2b05e"
+    },
+    {
+      "path": "scripts/original_achilles.py",
+      "bytes": 4462,
+      "sha256": "fc5625522bff37a7d89d222ba22ebc1c5f31be501ef077746d6a182ab2b85460"
+    },
+    {
+      "path": "scripts/sensor_rx_trace_overlay.py",
+      "bytes": 1142,
+      "sha256": "225c5a053bce67a5b80eb928adf9cd2678133bf98e06ffb235316497a856190e"
+    },
+    {
+      "path": "scripts/serial_registry.json",
+      "bytes": 2665,
+      "sha256": "e6c0be2e7da3b9f139406ac94ad5b06cdaf7bd33eb53bad2f32aa96238a7603b"
+    },
+    {
+      "path": "scripts/status_led_overlay.py",
+      "bytes": 2422,
+      "sha256": "9bd7908f2963d0c305ae0710a508339f319d0e8c798d5b707bb0c1bcf369c693"
+    },
+    {
+      "path": "scripts/verify_athena.py",
+      "bytes": 1084,
+      "sha256": "1e60e79dad85fd0c30a5e5c37430545d8f566e287595e73532aa0530ae9d23df"
+    },
+    {
+      "path": "sensor_profiles/README.md",
+      "bytes": 545,
+      "sha256": "1e9b1048c5333e9f722607b062b9ece61c041818ccf9b8c1257d3a9c7bfcebc8"
+    },
+    {
+      "path": "sensor_profiles/banner_qm30vt3.json",
+      "bytes": 2762,
+      "sha256": "721da4327e3b9b52656de92d9f3f0e6475883a01d1e625db2f2d3f915767ea27"
+    },
+    {
+      "path": "sensor_profiles/bx2601a_wz01m.json",
+      "bytes": 3112,
+      "sha256": "cacd9a7fefee2115d7536745a51738485a05c5b5434e05d742f8d7ee039d8c08"
+    },
+    {
+      "path": "sensor_profiles/bx2601a_wz01m_bulkread.json",
+      "bytes": 4048,
+      "sha256": "d3a65fcac3bc453e3cd6547d95d86aa6179d4ad6c5bb535fd1c3b4e50fcf2f58"
+    },
+    {
+      "path": "sensor_profiles/bx2601a_wz01m_communication_test.json",
+      "bytes": 3125,
+      "sha256": "8feb97a5a9c748cbe2b6c0b9fe573c0d088e109d42c25a320b36f6e628bc42a4"
+    },
+    {
+      "path": "sensor_profiles/bydr3016zw.json",
+      "bytes": 2719,
+      "sha256": "97fdc3911ba18f24010d54b9765d6d57a41e38d81f3556dd5cd9438001684607"
+    },
+    {
+      "path": "sensor_profiles/schema-v3.json",
+      "bytes": 12151,
+      "sha256": "f8d608351cc51d4cf154a27a32ff4358ce1ce0fc010afab2cd0a517a72ffc353"
+    },
+    {
+      "path": "sensor_profiles/witmotion_wtvb01.json",
+      "bytes": 3127,
+      "sha256": "f93cf0098b039ecd2d1c6599cca030b7ce6733f24885da30a9e2b1ed5c317101"
+    },
+    {
+      "path": "src/main.cpp",
+      "bytes": 272895,
+      "sha256": "fea85fdee092c2dfbaa6b48e7175f435ff7c055838b8053145724acf5dca017d"
+    },
+    {
+      "path": "src/main_2.cpp",
+      "bytes": 9526,
+      "sha256": "be618303e1d24669e88416b3f7d1496f5c8782801521cf81a873fd6d1577a5b9"
+    },
+    {
+      "path": "test/README.md",
+      "bytes": 1118,
+      "sha256": "adae0121b0cd375c3a8116b108dbb0f4936ae21fc50c6a64aa181450dd3148e2"
+    },
+    {
+      "path": "test/generic_modbus_decoder_test.js",
+      "bytes": 12695,
+      "sha256": "976346174e4bd1b2c4b26a527fcf025278f1a3d57b7cce7013612f7da6c0786b"
+    },
+    {
+      "path": "test/live_status_page_test.js",
+      "bytes": 4768,
+      "sha256": "16dae87a7bdca80a22f05482d7351c61a362d030f1dd61447c687b3258694bb4"
+    },
+    {
+      "path": "test/mqtt_long_outage_recovery_test.js",
+      "bytes": 10211,
+      "sha256": "c41195a021e0eb62c94ec5691b9f1a6c873fa2ef5b48b7d878a798d6362d4afb"
+    },
+    {
+      "path": "test/reliability_contract_test.js",
+      "bytes": 18750,
+      "sha256": "5670a728444e91cd61b85e1b4c3553328e13889438aed609d9c6eeb64c0d1892"
+    },
+    {
+      "path": "test/status_led_pattern_test.cpp",
+      "bytes": 2304,
+      "sha256": "e20afcf2daa8174bce2e76b52dec972b15bb0294bce92fd530e0ec18964f5417"
+    },
+    {
+      "path": "test/status_led_service_test.cpp",
+      "bytes": 3753,
+      "sha256": "4df65e927561f37c3b14986f94bd375b3d1b89f09b606b18ddc71f2675d568ce"
+    },
+    {
+      "path": "test/status_led_stubs/Arduino.h",
+      "bytes": 632,
+      "sha256": "e4be93fe180436c24eaf0ca1c4ef0180f8ed0e598ee78d45669e8811bd448232"
+    },
+    {
+      "path": "test/status_led_stubs/esp_timer.h",
+      "bytes": 840,
+      "sha256": "eda422f26b4f16a631037021c729b86bf20315aa5487593ac35c8d6fca906215"
+    }
+  ]
+}
